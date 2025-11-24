@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Optional, Tuple
 
 from .core import GomokuBoard, Stone, Coord
-from .ai import RandomAI  # 以后你可以换成 HeuristicAI
+from .ai import HeuristicAI  # 以后你可以换成 HeuristicAI
 
 
 def parse_coord(s: str, size: int) -> Optional[Coord]:
@@ -69,7 +69,7 @@ def run_human_vs_ai() -> None:
     人机对战：你执黑先手，AI 执白。
     """
     board = GomokuBoard()
-    ai = RandomAI(Stone.WHITE)  # 以后改成 HeuristicAI(Stone.WHITE)
+    ai = HeuristicAI(Stone.WHITE)  # 以后改成 HeuristicAI(Stone.WHITE)
 
     print("欢迎来到命令行五子棋（人机对战模式）！")
     print("你执黑(●)，AI 执白(○)。")
@@ -160,3 +160,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+# python -m gomoku.cli 运行游戏
