@@ -13,12 +13,13 @@ from PyQt5.QtWidgets import (
     QLabel,
     QPushButton,
     QMessageBox,
+    QFileDialog,
 )
 
 from .core import GomokuBoard, Stone
 from .ai import HeuristicAI
-from .record import GameRecorder
-
+from .record import GameRecorder, GameRecord
+from pathlib import Path
 
 Coord = Tuple[int, int]
 
@@ -131,6 +132,94 @@ class BoardWidget(QWidget):
         if self.on_human_move:
             self.on_human_move(r, c)
 
+class ReplayWindow(QMainWindow):
+    """
+    棋谱回放窗口：
+    - 只显示棋盘，不允许落子
+    - 通过“上一步 / 下一步 / 重置”按钮控制回放进度
+    """
+
+    def __init__(self, record: GameRecord, parent=None):
+        super().__init__(parent)
+        self.record = record
+        self.board = GomokuBoard(size=record.board_size)
+        self.current_step = 0  # 已经展示到第几手（0 表示空棋盘）
+
+        self.setWindowTitle("棋谱回放")
+        self.resize(600, 650)
+
+        # 棋盘：on_human_move 传 None，禁用点击落子
+        self.board_widget = BoardWidget(self.board, on_human_move=None)
+
+        self.info_label = QLabel(self._build_info_text())
+        self.info_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+
+        self.prev_button = QPushButton("上一步")
+        self.next_button = QPushButton("下一步")
+        self.reset_button = QPushButton("重置")
+
+        self.prev_button.clicked.connect(self.step_back)
+        self.next_button.clicked.connect(self.step_forward)
+        self.reset_button.clicked.connect(self.reset)
+
+        central = QWidget()
+        vbox = QVBoxLayout(central)
+        vbox.addWidget(self.board_widget, stretch=1)
+
+        hbox = QHBoxLayout()
+        hbox.addWidget(self.info_label)
+        hbox.addStretch()
+        hbox.addWidget(self.prev_button)
+        hbox.addWidget(self.next_button)
+        hbox.addWidget(self.reset_button)
+        vbox.addLayout(hbox)
+
+        self.setCentralWidget(central)
+
+        self._refresh_board()
+
+    def _build_info_text(self) -> str:
+        total = len(self.record.moves)
+        winner = self.record.winner
+        if winner == int(Stone.BLACK):
+            win_text = "黑胜"
+        elif winner == int(Stone.WHITE):
+            win_text = "白胜"
+        else:
+            win_text = "平局/未标记"
+        return f"步数：{self.current_step}/{total}    结果：{win_text}"
+
+    def _refresh_board(self) -> None:
+        # 清空棋盘
+        self.board = GomokuBoard(size=self.record.board_size)
+        self.board_widget.board = self.board
+        self.board.move_count = 0
+        self.board.last_move = None
+
+        # 应用前 current_step 手
+        for i in range(self.current_step):
+            mv = self.record.moves[i]
+            stone = Stone(mv.player)
+            self.board.grid[mv.row][mv.col] = stone
+            self.board.move_count += 1
+            self.board.last_move = (mv.row, mv.col)
+
+        self.board_widget.update()
+        self.info_label.setText(self._build_info_text())
+
+    def step_forward(self) -> None:
+        if self.current_step < len(self.record.moves):
+            self.current_step += 1
+            self._refresh_board()
+
+    def step_back(self) -> None:
+        if self.current_step > 0:
+            self.current_step -= 1
+            self._refresh_board()
+
+    def reset(self) -> None:
+        self.current_step = 0
+        self._refresh_board()
 
 class MainWindow(QMainWindow):
     """
@@ -160,6 +249,9 @@ class MainWindow(QMainWindow):
         self.new_game_button = QPushButton("新局")
         self.new_game_button.clicked.connect(self.new_game)
 
+        self.replay_button = QPushButton("回放棋谱")
+        self.replay_button.clicked.connect(self.open_replay)
+
         # 布局
         central = QWidget()
         vbox = QVBoxLayout(central)
@@ -168,6 +260,7 @@ class MainWindow(QMainWindow):
         hbox = QHBoxLayout()
         hbox.addWidget(self.status_label)
         hbox.addStretch()
+        hbox.addWidget(self.replay_button)
         hbox.addWidget(self.new_game_button)
         vbox.addLayout(hbox)
 
@@ -195,6 +288,33 @@ class MainWindow(QMainWindow):
         self.board_widget.set_game_over(False)
         self.status_label.setText("轮到你：黑棋 (●)")
         self.board_widget.update()
+
+    def open_replay(self) -> None:
+        """
+        选择一个 records/*.json 棋谱文件，并打开回放窗口。
+        """
+        records_dir = Path.cwd() / "records"
+        if not records_dir.exists():
+            QMessageBox.information(self, "没有棋谱", "当前目录下还没有 records/ 目录，请先完成一局并保存棋谱。")
+            return
+
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择棋谱文件",
+            str(records_dir),
+            "Gomoku Records (*.json);;All Files (*)",
+        )
+        if not file_path:
+            return
+
+        try:
+            record = GameRecorder.load(Path(file_path))
+        except Exception as e:
+            QMessageBox.warning(self, "加载失败", f"无法加载棋谱文件：\n{e}")
+            return
+
+        replay_win = ReplayWindow(record, parent=self)
+        replay_win.show()
 
     # ---- 人类落子回调 ----
     def handle_human_move(self, row: int, col: int) -> None:
