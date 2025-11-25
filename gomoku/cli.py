@@ -3,7 +3,7 @@ from typing import Optional, Tuple
 
 from .core import GomokuBoard, Stone, Coord
 from .ai import HeuristicAI  # 以后你可以换成 HeuristicAI
-
+from .record import GameRecorder
 
 def parse_coord(s: str, size: int) -> Optional[Coord]:
     """
@@ -67,13 +67,17 @@ def print_board(board: GomokuBoard) -> None:
 def run_human_vs_ai() -> None:
     """
     人机对战：你执黑先手，AI 执白。
+    对局会记录到 GameRecorder，结束后可选择保存棋谱。
     """
     board = GomokuBoard()
-    ai = HeuristicAI(Stone.WHITE)  # 以后改成 HeuristicAI(Stone.WHITE)
+    ai = HeuristicAI(Stone.WHITE)
+    recorder = GameRecorder(board_size=board.size, first_player=Stone.BLACK)
 
     print("欢迎来到命令行五子棋（人机对战模式）！")
     print("你执黑(●)，AI 执白(○)。")
     print_board(board)
+
+    winner: Optional[Stone] = None
 
     while True:
         # 人类回合（黑）
@@ -85,6 +89,8 @@ def run_human_vs_ai() -> None:
         if not board.place_stone(*move):
             print("落子失败（理论不会出现），请重试。")
             continue
+
+        recorder.add_move(player, move)
 
         print_board(board)
         winner = board.check_winner()
@@ -101,8 +107,8 @@ def run_human_vs_ai() -> None:
         if ai_move is None:
             print("AI 无棋可下，平局。")
             break
-        # 这里不需要验证合法性，因为 AI 内部保证
         board.place_stone(*ai_move)
+        recorder.add_move(Stone.WHITE, ai_move)
 
         print(f"AI 落子：行 {ai_move[0]+1}, 列 {chr(ord('A') + ai_move[1])}")
         print_board(board)
@@ -115,6 +121,14 @@ def run_human_vs_ai() -> None:
             print("棋盘已满，平局。")
             break
 
+    # -------- 对局结束，保存棋谱 --------
+    recorder.set_winner(winner)
+    choice = input("是否保存棋谱到 records/ 目录？(Y/n)：").strip().lower()
+    if choice in ("", "y", "yes"):
+        path = recorder.save_to_default(prefix="human_vs_ai")
+        print(f"棋谱已保存：{path}")
+    else:
+        print("本局棋谱未保存。")
 
 def run_human_vs_human() -> None:
     """
@@ -123,6 +137,7 @@ def run_human_vs_human() -> None:
     board = GomokuBoard()
     print("命令行五子棋（双人对战模式）")
     print_board(board)
+    recorder = GameRecorder(board_size=board.size, first_player=Stone.BLACK)
 
     while True:
         player = board.current_player
@@ -133,6 +148,7 @@ def run_human_vs_human() -> None:
         if not board.place_stone(*move):
             print("落子失败，请重试。")
             continue
+        recorder.add_move(player, move)
 
         print_board(board)
         winner = board.check_winner()
@@ -145,6 +161,15 @@ def run_human_vs_human() -> None:
         if board.is_full():
             print("棋盘已满，平局。")
             break
+
+        # -------- 对局结束，保存棋谱 --------
+        recorder.set_winner(winner)
+        choice = input("是否保存棋谱到 records/ 目录？(Y/n)：").strip().lower()
+        if choice in ("", "y", "yes"):
+            path = recorder.save_to_default(prefix="human_vs_ai")
+            print(f"棋谱已保存：{path}")
+        else:
+            print("本局棋谱未保存。")
 
 
 def main() -> None:
