@@ -14,6 +14,7 @@ from PyQt5.QtWidgets import (
     QPushButton,
     QMessageBox,
     QFileDialog,
+    QComboBox,
 )
 
 from .core import GomokuBoard, Stone
@@ -237,14 +238,27 @@ class MainWindow(QMainWindow):
 
         # --- 核心对象 ---
         self.board = GomokuBoard()
-        self.ai = HeuristicAI(Stone.WHITE)
+        # 默认：你执黑，AI 执白
+        self.human_stone = Stone.BLACK
+        self.ai_stone = Stone.WHITE
+        self.ai = HeuristicAI(self.ai_stone)
         self.recorder = GameRecorder(board_size=self.board.size, first_player=Stone.BLACK)
         self.game_over = False
 
         # --- UI 组件 ---
         self.board_widget = BoardWidget(self.board, self.handle_human_move)
+
         self.status_label = QLabel("轮到你：黑棋 (●)")
         self.status_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+
+        # 角色选择：你执黑 / 你执白
+        self.role_combo = QComboBox()
+        self.role_combo.addItems(["你执黑 (AI 执白)", "你执白 (AI 执黑)"])
+        # 修改时只影响“下一局”，不打断当前对局，所以不用立刻改逻辑
+
+        # 难度选择
+        self.level_combo = QComboBox()
+        self.level_combo.addItems(["简单", "中等", "困难"])
 
         self.new_game_button = QPushButton("新局")
         self.new_game_button.clicked.connect(self.new_game)
@@ -260,12 +274,38 @@ class MainWindow(QMainWindow):
         hbox = QHBoxLayout()
         hbox.addWidget(self.status_label)
         hbox.addStretch()
+        hbox.addWidget(QLabel("角色:"))
+        hbox.addWidget(self.role_combo)
+        hbox.addWidget(QLabel("难度:"))
+        hbox.addWidget(self.level_combo)
         hbox.addWidget(self.replay_button)
         hbox.addWidget(self.new_game_button)
         vbox.addLayout(hbox)
 
         self.setCentralWidget(central)
 
+    def _create_ai_for_level(self, stone: Stone) -> HeuristicAI:
+        """
+        根据难度下拉框，创建对应配置的 AI。
+        简单：只看一手，范围小
+        中等：默认参数
+        困难：范围更大，更多两层搜索
+        """
+        idx = self.level_combo.currentIndex()
+        if idx == 0:  # 简单
+            return HeuristicAI(stone, search_radius=1, max_search_candidates=0)
+        elif idx == 1:  # 中等
+            return HeuristicAI(stone, search_radius=2, max_search_candidates=20)
+        else:  # 困难
+            return HeuristicAI(stone, search_radius=3, max_search_candidates=40)
+
+    def _status_text_for(self, stone: Stone, is_human: bool) -> str:
+        who = "你" if is_human else "AI"
+        if stone == Stone.BLACK:
+            color = "黑棋 (●)"
+        else:
+            color = "白棋 (○)"
+        return f"轮到{who}：{color}"
     # ---- 新局 ----
     def new_game(self) -> None:
         if not self.game_over:
@@ -279,16 +319,41 @@ class MainWindow(QMainWindow):
             if reply != QMessageBox.Yes:
                 return
 
+        # 重置棋盘
         self.board = GomokuBoard()
-        self.ai = HeuristicAI(Stone.WHITE)
-        self.recorder = GameRecorder(board_size=self.board.size, first_player=Stone.BLACK)
+
+        # 根据下拉框决定谁执黑
+        role_index = self.role_combo.currentIndex()
+        if role_index == 0:
+            # 你执黑
+            self.human_stone = Stone.BLACK
+            self.ai_stone = Stone.WHITE
+        else:
+            # 你执白
+            self.human_stone = Stone.WHITE
+            self.ai_stone = Stone.BLACK
+
+        # 五子棋规则：黑棋先手
+        self.board.current_player = Stone.BLACK
+        first_player = Stone.BLACK
+
+        # 按难度创建 AI
+        self.ai = self._create_ai_for_level(self.ai_stone)
+        self.recorder = GameRecorder(board_size=self.board.size, first_player=first_player)
         self.game_over = False
 
         self.board_widget.board = self.board
         self.board_widget.set_game_over(False)
-        self.status_label.setText("轮到你：黑棋 (●)")
         self.board_widget.update()
 
+        # 如果 AI 执黑，则 AI 先手
+        if self.ai_stone == Stone.BLACK:
+            self.status_label.setText("AI 先手中...")
+            QApplication.processEvents()
+            self._ai_move_once()
+        else:
+            # 你执黑，轮到你
+            self.status_label.setText(self._status_text_for(self.human_stone, is_human=True))
     def open_replay(self) -> None:
         """
         选择一个 records/*.json 棋谱文件，并打开回放窗口。
@@ -316,44 +381,56 @@ class MainWindow(QMainWindow):
         replay_win = ReplayWindow(record, parent=self)
         replay_win.show()
 
+    def _ai_move_once(self) -> None:
+        if self.game_over:
+            return
+        if self.board.current_player != self.ai_stone:
+            return
+
+        ai_move = self.ai.select_move(self.board)
+        if ai_move is None:
+            # AI 无棋可下
+            self.finish_game(None)
+            return
+
+        self.board.place_stone(*ai_move)
+        self.recorder.add_move(self.ai_stone, ai_move)
+        self.board_widget.update()
+
+        winner = self.board.check_winner()
+        if winner is not None or self.board.is_full():
+            self.finish_game(winner)
+            return
+
+        # 轮到人类
+        self.status_label.setText(self._status_text_for(self.human_stone, is_human=True))
+
     # ---- 人类落子回调 ----
     def handle_human_move(self, row: int, col: int) -> None:
         if self.game_over:
             return
-        if self.board.current_player != Stone.BLACK:
+        # 只在轮到人的时候响应点击
+        if self.board.current_player != self.human_stone:
             return
         if not self.board.is_valid_move(row, col):
             return
 
         # 人类下子
         self.board.place_stone(row, col)
-        self.recorder.add_move(Stone.BLACK, (row, col))
+        self.recorder.add_move(self.human_stone, (row, col))
         self.board_widget.update()
 
         winner = self.board.check_winner()
         if winner is not None or self.board.is_full():
             self.finish_game(winner)
             return
-
-        self.status_label.setText("轮到 AI：白棋 (○)")
-        QApplication.processEvents()  # 让 UI 刷新一下状态
 
         # AI 回合
-        ai_move = self.ai.select_move(self.board)
-        if ai_move is None:
-            self.finish_game(None)
-            return
+        self.status_label.setText(self._status_text_for(self.ai_stone, is_human=False))
+        QApplication.processEvents()
 
-        self.board.place_stone(*ai_move)
-        self.recorder.add_move(Stone.WHITE, ai_move)
-        self.board_widget.update()
+        self._ai_move_once()
 
-        winner = self.board.check_winner()
-        if winner is not None or self.board.is_full():
-            self.finish_game(winner)
-            return
-
-        self.status_label.setText("轮到你：黑棋 (●)")
 
     # ---- 对局结束 ----
     def finish_game(self, winner: Optional[Stone]) -> None:
@@ -361,12 +438,15 @@ class MainWindow(QMainWindow):
         self.board_widget.set_game_over(True)
         self.recorder.set_winner(winner)
 
-        if winner == Stone.BLACK:
-            msg = "你赢了！（黑方胜）"
-        elif winner == Stone.WHITE:
-            msg = "AI 获胜（白方胜）"
-        else:
+        if winner is None:
             msg = "平局。"
+        elif winner == self.human_stone:
+            msg = f"你赢了！（{'黑' if winner == Stone.BLACK else '白'}方胜）"
+        elif winner == self.ai_stone:
+            msg = f"AI 获胜（{'黑' if winner == Stone.BLACK else '白'}方胜）"
+        else:
+            # 理论上不会出现
+            msg = "对局结束。"
 
         reply = QMessageBox.question(
             self,
@@ -380,7 +460,6 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "保存成功", f"棋谱已保存到：\n{path}")
         else:
             QMessageBox.information(self, "对局结束", msg)
-
 
 def main() -> None:
     import sys
