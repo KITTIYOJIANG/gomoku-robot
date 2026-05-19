@@ -1,406 +1,300 @@
-# 棋眼 Pro / Qiyan Pro  
-基于视觉识别与机械臂控制的智能五子棋对弈系统（软件核心）
+# Gomoku Robot / 棋眼 Pro
 
-> 仓库名：`gomoku-robot`  
-> This repo currently focuses on the **software core** of the system: game engine, AI, GUI, recording and experiment tools.  
-> Hardware (camera + STM32 robot arm) is designed but not yet fully integrated.
+Gomoku Robot 是一个面向真实棋盘人机对弈场景的智能五子棋机器人系统。项目结合五子棋规则引擎、启发式 AI、PyQt 上位机、OpenCV 视觉识别与独立机械臂控制仓库，目标是实现从真实棋盘识别到机器人自主落子的完整闭环。
 
----
+> 当前仓库负责上位机、视觉识别、棋局建模、AI 决策与棋谱工具。机械臂底层控制已拆分到独立仓库：[gomoku-arm-controller](https://github.com/KITTIYOJIANG/gomoku-arm-controller)。
 
-## 1. 项目简介 / Overview
+## Overview
 
-**中文说明**
+长期目标链路：
 
-棋眼 Pro 是一个面向课程大作业 / 毕设场景的 **智能五子棋对弈系统**。  
-整体目标是：通过 **计算机视觉 + 上位机策略决策 + STM32 机械臂控制**，实现真实棋盘上的人机对弈。
+```text
+真实棋盘 / 摄像头图像
+  -> OpenCV 棋盘识别
+  -> 黑白棋子识别
+  -> 15x15 棋盘状态矩阵
+  -> 五子棋 AI 决策
+  -> 棋盘坐标 row/col
+  -> 调用 gomoku-arm-controller
+  -> STM32 / 机械臂完成落子
+```
 
-本仓库当前实现的是 **完整的软件核心部分**：
+English:
 
-- 五子棋规则引擎（落子、胜负判定、棋盘表示）
-- 启发式 + 小搜索的 AI 对手
-- 命令行 & PyQt 图形界面的人机对弈
-- 对局记录、棋谱回放
-- AI 自对弈与实验统计工具
-- 为后续摄像头识别 / 机械臂控制预留接口与 GUI 状态区
+Gomoku Robot is a physical-board Gomoku robot host system. The long-term goal is to connect camera-based board recognition, host-side AI decision-making, and STM32-based robotic arm actuation into a complete perception-decision-action loop.
 
-硬件（摄像头 + STM32 机械臂）暂未接入，但协议和上位机对接思路已经规划完毕。
+## Repository Boundary
 
----
+本仓库 `gomoku-robot` 负责：
 
-**English Overview**
+- 摄像头读取与棋盘图像处理
+- 透视变换与 15x15 棋盘状态矩阵生成
+- 五子棋规则引擎、AI 决策和 PyQt 上位机 GUI
+- 命令行对弈、棋谱记录、棋谱回放和 AI 自对弈实验
+- 将 AI 落子结果以 `(row, col)` 形式交给机械臂控制层
 
-**Qiyan Pro** is an intelligent Gomoku (five-in-a-row) system designed for a **course project / capstone** style scenario.  
+独立仓库 `gomoku-arm-controller` 负责：
 
-The long-term goal is to support **real-board play** with:
+- 棋盘坐标合法性检查
+- 棋盘坐标到机械臂坐标映射
+- STM32 串口协议和 PWM 指令生成
+- mock 模式、机械臂示教、硬件标定和动作执行
 
-- computer vision (camera detecting stones on a physical board),
-- a host-side AI engine making decisions,
-- and a STM32-based robot arm placing stones on the board.
+这种拆分让上位机和机械臂控制可以分别开发、测试和展示。
 
-This repository currently focuses on the **software core**:
+## Current Status
 
-- Gomoku game engine (rules, move validation, win detection)
-- Heuristic AI with shallow search
-- CLI & PyQt GUI for human–AI games
-- Game recording and replay (kifu)
-- AI self-play & experiment tools
-- Placeholders and UI areas for future camera & robot arm integration
+已完成 / 已具备雏形：
 
-Hardware is not yet connected, but protocols and interfaces on the host side are designed.
+- 五子棋规则引擎：落子、合法性判断、胜负判定、棋盘表示
+- 启发式 AI：冲四、堵四、防守活三、浅层搜索
+- CLI 人机对弈与本地双人对弈
+- AI 自对弈与实验统计
+- JSON 棋谱记录与回放
+- PyQt 上位机界面
+- 摄像头实时读取
+- 基于 OpenCV 的透视变换
+- 局部亮度差分的黑白棋检测
+- 15x15 棋盘状态矩阵更新
+- 与独立机械臂控制仓库的适配层
+- 机械臂 mock 调用验证
 
----
+仍在推进：
 
-## 2. 主要特性 / Key Features
+- 棋盘识别鲁棒性提升
+- 真实 STM32 机械臂联调
+- 落子误差、识别准确率和完整对局成功率统计
+- 视觉模块进一步拆分为 `vision/board_detector.py`、`vision/grid_mapper.py`、`vision/stone_detector.py`
 
-### 🎮 游戏与界面 / Game & UI
+## Key Features
 
-- ✅ **命令行人机对弈**（Human vs AI, CLI）
-- ✅ **命令行双人对弈**（Human vs Human, CLI）
-- ✅ **PyQt 图形界面上位机**
-  - 棋盘绘制、鼠标点击落子
-  - 角色切换：你执黑 / 你执白（AI 先手或玩家先手）
-  - 难度选择：简单 / 中等 / 困难（内部调整 AI 搜索范围）
-  - GUI 内保存棋谱、加载并回放对局
-  - 对战统计面板：总局数、胜场、平局数、平均步数
-  - 设备状态区：预留给摄像头、机械臂状态显示
+### Game and UI
 
-### 🧠 AI 与规则 / AI & Engine
+- CLI human-vs-AI mode
+- CLI human-vs-human mode
+- PyQt host GUI
+- Board rendering and AI decision request
+- Game record saving and replay support
+- Device integration area for camera and robotic arm status
 
-- **GomokuBoard**：
-  - 15×15 棋盘
-  - 合法性判断、轮换执手
-  - 胜负判定（横/竖/主对角/副对角五连）
-- **HeuristicAI**：
-  - 冲四、堵四
-  - 识别并优先防守“活三”
-  - 基于窗口统计的启发式评分函数
-  - 简单双层搜索（两步 minimax 风格：自己走一步 + 对手走一步）
-  - 可调参数：搜索半径、候选点数量等
-- **RandomAI**：
-  - 随机合法落子，用作基线 AI
+### AI and Engine
 
-### 📜 棋谱与回放 / Recording & Replay
+- `GomokuBoard`
+  - 15x15 board
+  - legal move validation
+  - player switching
+  - win detection in horizontal, vertical and diagonal directions
+- `HeuristicAI`
+  - one-move win detection
+  - opponent immediate-win blocking
+  - open-three defense
+  - window-based heuristic scoring
+  - shallow minimax-style search
+- `RandomAI`
+  - random legal move baseline
 
-- 每一局可保存为 **JSON 棋谱文件**（包含步序、执手、时间等基础信息）
-- 支持：
-  - 命令行回放（逐手查看）
-  - GUI 回放窗口：上一步 / 下一步 / 重置
+### Recording and Experiments
 
-### 🧪 AI 实验工具 / AI Experiment Tools
-
-- `selfplay.py` 支持：
+- JSON kifu-style game record
+- CLI replay
+- AI self-play experiments:
   - Heuristic vs Heuristic
   - Heuristic vs Random
   - Random vs Heuristic
-  - 批量运行 N 局，输出胜负统计与平均步数
-  - 可选保存所有自对弈棋谱，供后续分析
 
----
+## Tech Stack
 
-## 3. 技术栈 / Tech Stack
+- Python
+- OpenCV
+- NumPy
+- PyQt5
+- pyserial
+- pytest
+- STM32 / servo controller
 
-- **Language**: Python 3.x
-- **GUI**: PyQt5
-- **Core Modules**:
-  - `gomoku.core` – GomokuBoard & basic rules
-  - `gomoku.ai` – HeuristicAI & RandomAI
-  - `gomoku.record` – GameRecorder & JSON kifu
-  - `gomoku.gui_qt` – PyQt-based host GUI
-  - `gomoku.selfplay` – AI self-play / batch experiment
-  - `gomoku.replay` – CLI replay
-  - `gomoku.ai_debug` – AI debugging helper scripts
-
----
-
-## 4. 项目结构 / Project Structure
+## Project Structure
 
 ```text
 gomoku-robot/
-├─ README.md                  # 项目说明（本文件）
+├─ README.md
+├─ requirements.txt
+├─ main.py
 ├─ gomoku/
 │  ├─ __init__.py
-│  ├─ core.py                 # 棋盘与规则引擎
-│  ├─ ai.py                   # HeuristicAI & RandomAI
-│  ├─ cli.py                  # 命令行入口（人机/双人/自对弈）
-│  ├─ ai_debug.py             # AI 调试与测试脚本
-│  ├─ record.py               # GameRecorder，棋谱保存/加载
-│  ├─ replay.py               # 命令行棋谱回放
-│  ├─ gui_qt.py               # PyQt 图形界面上位机
-│  ├─ selfplay.py             # AI 自对弈/实验工具
-│  └─ ...                     # 未来扩展（摄像头、串口、硬件控制等）
-├─ records/                   # 自动生成：保存棋谱的目录
-└─ docs/ / images/ (optional) # 可选：文档与截图
+│  ├─ core.py
+│  ├─ ai.py
+│  ├─ ai_logic.py
+│  ├─ cli.py
+│  ├─ gui_qt.py
+│  ├─ camera_interface.py
+│  ├─ config.py
+│  ├─ record.py
+│  ├─ replay.py
+│  ├─ selfplay.py
+│  ├─ ai_debug.py
+│  └─ stm32_controller.py
+├─ calibration_tools/
+├─ arm/
+├─ docs/
+├─ tests/
+└─ records/
 ```
 
-## 5. 环境配置 / Setup
+## Setup
 
-### 5.1 依赖 / Dependencies
+Recommended Python version: Python 3.9+
 
-建议使用 **Python 3.9+**。
-
-安装依赖（示例）：
+Install dependencies:
 
 ```bash
-pip install pyqt5
+pip install -r requirements.txt
 ```
 
-## 6. 使用说明 / Usage
-### 6.1 命令行模式（CLI）
+Recommended local layout:
 
-在项目根目录（包含 gomoku/ 的目录）打开终端：
+```text
+D:/Projects/gomoku_project
+D:/Projects/gomoku_arm_controller
+```
+
+## Usage
+
+### Run the Host GUI
+
+```bash
+python main.py
+```
+
+By default, the arm controller adapter uses mock mode to avoid moving real hardware accidentally:
+
+```bash
+set GOMOKU_ARM_MOCK=1
+python main.py
+```
+
+To use real serial control after hardware is ready:
+
+```bash
+set GOMOKU_ARM_MOCK=0
+python main.py
+```
+
+### Run CLI Gomoku
+
 ```bash
 python -m gomoku.cli
 ```
 
-你会看到菜单：
+Supported input formats:
+
+- `H8`
+- `8 8`
+
+### Run AI Self-Play
+
+```bash
+python -m gomoku.selfplay
 ```
-请选择模式：
-1. 人机对战（你 vs AI）
-2. 双人对战（本地）
-3. AI 自对弈实验（AI vs AI）
-```
 
-**模式 1：人机对战（命令行）**
+### Run Record Replay
 
-- 你执黑先手，AI 执白（可在代码中轻松调整）
-
-- 落子输入示例：
-
-  - `H8` / `h8`（列+行）
-
-  - `8 8`（行 列，1-based）
-
-- 系统在对局结束时提示：
-
-  - 黑方胜 / 白方胜 / 平局
-
-**模式 2：双人对战（命令行）**
-
-- 双方轮流输入坐标在同一终端落子
-
-- 适合测试规则引擎或纯人类对弈
-
-**模式 3：AI 自对弈实验（命令行）**
-
-进入后可以选择：
-
-- Heuristic vs Heuristic
-
-- Heuristic vs Random
-
-- Random vs Heuristic
-
-并设置：
-
-- 对弈局数（如 10、50、100）
-
-- 是否保存每一局棋谱到 records/ 目录
-
-命令行版本的棋谱回放：
-```bash 
+```bash
 python -m gomoku.replay
 ```
 
-选择 `records/` 下的某个 `.json` 文件，即可一步步回放整局棋。
----
-## 6.2 图形界面（PyQt GUI）
+### Run AI Debug Cases
 
-运行：
 ```bash
-python -m gomoku.gui_qt
+python -m gomoku.ai_debug
 ```
 
-你会看到：
+### Run Tests
 
-- 左侧：可点击落子的棋盘
+```bash
+python -m pytest tests
+```
 
-- 右侧：
+## Arm Controller Integration Test
 
-  - 对战统计：总局数、你的胜场、AI 胜场、平局数、平均步数
+Run inside this repository:
 
-  - 设备状态区：当前显示“摄像头：未接入 / 机械臂：未接入”，预留给未来硬件模块
+```bash
+python -c "from gomoku.stm32_controller import STM32Controller; c=STM32Controller(); c.execute_move(7, 7); c.close()"
+```
 
-- 底部：
+Run directly inside the arm controller repository:
 
-  - 状态文字：当前轮到谁（你 / AI，黑 / 白）
+```bash
+python -m arm_controller.cli place --row 7 --col 7 --mock
+```
 
-  - 角色选择：你执黑 / 你执白（决定谁先手）
+## AI Design
 
-  - 难度选择：简单 / 中等 / 困难
+The current `HeuristicAI` follows these principles:
 
-  - “回放棋谱”按钮
+1. Forcing moves first
+   - If there is a one-move win, play it.
+   - If the opponent has a one-move win, block it immediately.
 
-  - “新局”按钮
+2. Open-three defense
+   - Scan length-5 windows for open-three patterns.
+   - Prefer to block such patterns at their endpoints.
 
-**GUI 功能说明：**
+3. Heuristic evaluation
+   - Count player and opponent stones in each 5-cell window.
+   - Ignore blocked windows occupied by both sides.
+   - Reward longer chains and heavily penalize opponent 3/4-in-a-row threats.
 
-  - 使用鼠标点击棋盘交点落子。
+4. Shallow search
+   - Simulate my move and the opponent's strongest reply.
+   - Choose the move with the best score under this worst-case response.
 
-  - 对局结束后，会弹窗询问是否保存棋谱至 records/。
+## Hardware and Vision Plan
 
-  - 点击“回放棋谱”：
+### Camera and Vision
 
-    - 选择一个 .json 棋谱文件，将打开独立的回放窗口。
+The planned vision pipeline is:
 
-    - 可通过“上一步 / 下一步 / 重置”控制棋局进度。
+- detect board area
+- apply perspective transform
+- locate 15x15 grid points
+- detect black and white stones
+- output a board matrix where `0 = empty`, `1 = black`, `2 = white`
+- synchronize the recognized state with `GomokuBoard` and the PyQt GUI
 
-## 7. AI 设计概述 / AI Design Overview
-**中文简述**
+### STM32 and Robotic Arm
 
-当前 HeuristicAI 的核心策略：
-1. 强制性步骤优先：
-- 若有一步可以直接胜利 → 立即下。
-- 若对手有一步可以直接胜利 → 优先堵。
+The planned host-to-arm protocol is:
 
-2. 防守活三：
-- 扫描所有长度为 5 的窗口，检测模式 .○○○.（对手活三）。
-- 优先在端点处落子堵截，防止对手轻松做出四连或多重威胁。
+```text
+P x y\n
+OK x y\n
+ERR code\n
+```
 
-3. 启发式评分：
-- 对每个 5 格窗口统计我方 / 对方连续子数。
-- 如果窗口内双方都有子则视为“互相堵死”，不计分。
-- 连子数越多得分越高，对手的 3 连 / 4 连惩罚权重更大（偏向防守）。
+The host project sends board coordinates. The standalone arm controller handles coordinate mapping, serial commands, PWM actions, calibration and hardware safety.
 
-4. 两步搜索（浅层 minimax）：
-- 在候选点范围内，模拟“我落一子 → 对手在其候选点中选择对我最不利的一步”。
-- 在此最坏情况下得分最高的一步作为最终落子。
-- 当候选点数量过大时退回单步启发式，以控制计算量。
+## Documentation
 
-English Summary
+- `docs/arm_controller_integration.md`: boundary between this host project and the standalone arm controller.
 
-The current **HeuristicAI** follows these principles:
+## Resume Description
 
-Forcing moves first:
+中文：
 
-If there is a one-move win → play it.
+- 开发面向真实棋盘人机对弈场景的智能五子棋机器人上位机系统，集成 PyQt GUI、OpenCV 棋盘识别、15x15 棋盘状态矩阵生成、启发式 AI 决策、棋谱记录/回放与独立机械臂控制适配层。
+- 将机械臂底层控制从上位机仓库中解耦，设计为独立 `gomoku-arm-controller` 项目，通过抽象棋盘坐标 `(row, col)` 完成上位机与 STM32 机械臂控制层的边界划分。
 
-If the opponent has a one-move win → block it immediately.
+English:
 
-Open-three defense:
+- Developed the host-side software for a physical Gomoku robot system, integrating a PyQt GUI, OpenCV-based board recognition, 15x15 board-state modeling, heuristic AI decision-making, game recording/replay, and an adapter to a standalone robotic arm controller.
+- Decoupled low-level robotic arm control from the host application by defining a clean board-coordinate interface between the vision/AI system and the STM32-based actuation layer.
 
-Scan all length-5 windows for .OOO. patterns (opponent open-three).
+## Roadmap
 
-Prefer to block such patterns at their endpoints to prevent easy threats.
-
-Heuristic evaluation:
-
-For each window of 5 cells, count my stones vs the opponent’s stones.
-
-If both players occupy the same window, it is considered blocked and ignored.
-
-Longer chains are rewarded; opponent’s 3/4-in-a-row patterns are heavily penalized.
-
-Two-ply search:
-
-Within a local candidate region, simulate:
-
-my move → opponent’s best reply,
-
-Then choose the move that maximizes my score under the opponent’s best reply.
-
-If there are too many candidates, fall back to single-step evaluation to keep it fast.
-
-## 8. 硬件与视觉规划（预留） / Hardware & Vision Planning (Future Work)
-
-当前仓库侧重软件，硬件相关部分暂为 设计阶段。
-The following is planned but not yet fully implemented.
-
-### 8.1 摄像头棋盘识别（Camera + CV）
-
-使用 OpenCV 等库，从摄像头图像中检测：
-
-棋盘位置、网格交点
-
-每个交点上是否有棋子及其颜色
-
-输出一个 15×15 的状态矩阵（0 = empty, 1 = black, 2 = white）
-
-将该矩阵与 GomokuBoard 对接，实现：
-
-“从真实棋盘读取当前局面”
-
-与 GUI 棋盘同步显示
-
-### 8.2 STM32 机械臂控制（Robot Arm via STM32）
-
-设计简单串口协议，例如：
-
-P x y\n 表示在棋盘坐标 (x, y) 落子
-
-OK x y\n 表示指定坐标落子成功
-
-ERR code\n 表示发生错误
-
-STM32 端：
-
-接收串口数据，解析坐标
-
-驱动机械臂移动到对应物理位置
-
-完成夹取/吸附棋子、落子动作
-
-上位机 GUI：
-
-设备状态栏显示串口连接状态、最近指令与执行结果
-
-### 8.3 Host–Device Integration
-
-为摄像头线程/进程提供统一接口，例如：
-
-update_board_from_camera(board_state)
-将识别结果更新到 GomokuBoard 和 GUI 棋盘。
-
-为机械臂控制提供统一控制类，例如：
-
-send_move(x, y)
-在内部调用串口发送指令，并将发送与反馈日志打印到 GUI 的 Log 区域。
-
-在没有硬件时，可先实现 Mock 版本：
-
-仅打印“虚拟指令”和“虚拟反馈”，方便调试整体流程。
-
-## 9. 实验与论文撰写建议 / Suggestions for Experiments & Report
-
-如果你将此项目用于课程大作业 / 毕设，可以考虑在论文/报告中包含：
-
-### 9.1 实验设计 / Experiments
-
-AI 模型对比：
-
-HeuristicAI vs RandomAI 的胜率（使用 selfplay.py 批量实验）
-
-不同难度参数（搜索半径、候选点数）下 HeuristicAI 的表现对比
-
-对局样例分析：
-
-人机对弈中的典型局面截图（AI 如何冲四、堵四、防守活三）
-
-AI 自对弈生成的棋谱样例与形势分析
-
-性能相关：
-
-平均决策时间（可选）
-
-不同参数下的速度 / 强度平衡
-
-### 9.2 系统设计章节 / System Design Sections
-
-系统架构：
-
-软件模块分层图：
-
-Engine（core） / AI / GUI / Recorder / Hardware Interface
-
-硬件联动（摄像头 + STM32）的整体设计图
-
-算法设计：
-
-HeuristicAI 的启发式规则与评分函数设计
-
-两层搜索的流程图（或伪代码）
-
-结果与分析：
-
-实验统计表格（胜率、平均步数）
-
-对典型局面的 AI 决策进行解释
+- Improve board recognition robustness
+- Split vision logic into standalone modules
+- Add benchmark images and recognition accuracy statistics
+- Add integration examples with `gomoku-arm-controller`
+- Complete real STM32 mechanical arm placement validation
+- Record placement error, recognition accuracy and full-game success rate

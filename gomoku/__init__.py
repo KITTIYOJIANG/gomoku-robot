@@ -1,0 +1,1 @@
+"""Gomoku robot host package."""
