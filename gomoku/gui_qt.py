@@ -1,474 +1,370 @@
-from __future__ import annotations
+import sys
+import copy
+import threading
+from queue import Queue
+from PyQt5.QtGui import QPainter, QColor, QPen, QBrush
+from PyQt5.QtCore import Qt, QTimer, QRectF, pyqtSignal  # 🌟 引入核心的跨线程信号
+from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QLabel, QComboBox
 
-from typing import Optional, Callable, Tuple
-
-from PyQt5.QtCore import Qt, QPointF
-from PyQt5.QtGui import QPainter, QPen, QBrush
-from PyQt5.QtWidgets import (
-    QApplication,
-    QMainWindow,
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QMessageBox,
-    QFileDialog,
-    QComboBox,
-)
-
+from . import config
 from .core import GomokuBoard, Stone
-from .ai import HeuristicAI
-from .record import GameRecorder, GameRecord
-from pathlib import Path
+from .camera_interface import CameraThread, consume_latest_board_state, update_board_from_camera
 
-Coord = Tuple[int, int]
+try:
+    from .ai_logic import get_best_move
+except ImportError:
+    get_best_move = None
+
+try:
+    from .stm32_controller import STM32Controller
+except ImportError:
+    STM32Controller = None
+
+from PyQt5.QtGui import QPainter, QColor, QPen, QBrush, QRadialGradient, QFont
+from PyQt5.QtCore import Qt, QTimer, QRectF, pyqtSignal
+from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QLabel, \
+    QComboBox, QFrame, QGraphicsDropShadowEffect
 
 
 class BoardWidget(QWidget):
-    """
-    棋盘绘制区域：
-    - 负责画网格和棋子
-    - 负责响应鼠标点击，把 (row, col) 回调给主窗口
-    """
-
-    def __init__(self, board: GomokuBoard, on_human_move: Callable[[int, int], None], parent=None):
+    def __init__(self, board: GomokuBoard, main_window=None, parent=None):
         super().__init__(parent)
         self.board = board
-        self.on_human_move = on_human_move
-        self._game_over = False
+        self.main_window = main_window
+        self.setMinimumSize(650, 650)
+        self.margin = 50
+        self.grid_size = 0
 
-        # 给个合适的最小尺寸
-        self.setMinimumSize(500, 500)
-
-    def set_game_over(self, over: bool) -> None:
-        self._game_over = over
-        self.update()
-
-    # ---- 绘制 ----
-    def paintEvent(self, event) -> None:
-        super().paintEvent(event)
+    def paintEvent(self, event):
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setRenderHint(QPainter.Antialiasing)
 
-        size = self.board.size
-        w = self.width()
-        h = self.height()
-        margin = 40
+        width, height = self.width(), self.height()
+        side = min(width, height)
+        self.grid_size = (side - 2 * self.margin) / (self.board.size - 1)
 
-        # 有效棋盘边长（像素，整数）
-        effective = min(w - 2 * margin, h - 2 * margin)
-        if effective <= 0:
-            return
+        # 1. Render 带有高级质感的木质棋盘背景
+        board_rect = QRectF(20, 20, side - 40, side - 40)
+        painter.setBrush(QColor(218, 170, 110))  # 温润的实木色
+        painter.setPen(QPen(QColor(139, 90, 43), 4))  # 深色实木边框
+        painter.drawRoundedRect(board_rect, 15, 15)
 
-        cell = effective / (size - 1)  # 每一格的像素宽度（float 没问题）
-        left = int((w - effective) / 2)
-        top = int((h - effective) / 2)
-        right = left + int((size - 1) * cell)
-        bottom = top + int((size - 1) * cell)
-
-        # 画网格 —— 传 int 给 drawLine
-        pen = QPen(Qt.black, 2)
+        # 2. Render 极细的棋盘网格
+        pen = QPen(QColor(50, 50, 50, 180), 1.5)
         painter.setPen(pen)
-        for i in range(size):
-            x = int(left + i * cell)
-            painter.drawLine(x, top, x, bottom)
-            y = int(top + i * cell)
-            painter.drawLine(left, y, right, y)
+        for i in range(self.board.size):
+            pos = self.margin + i * self.grid_size
+            painter.drawLine(int(self.margin), int(pos), int(side - self.margin), int(pos))
+            painter.drawLine(int(pos), int(self.margin), int(pos), int(side - self.margin))
 
-        # 画棋子
-        for r in range(size):
-            for c in range(size):
+        # 3. Render 天元和星位
+        painter.setBrush(QBrush(QColor(50, 50, 50)))
+        painter.setPen(Qt.NoPen)
+        # Assuming 15x15 standard, if 13x13 adjust accordingly
+        star_points = [(3, 3), (3, 11), (7, 7), (11, 3), (11, 11)] if self.board.size == 15 else [(3, 3), (3, 9),
+                                                                                                  (6, 6), (9, 3),
+                                                                                                  (9, 9)]
+        for r, c in star_points:
+            cx, cy = self.margin + c * self.grid_size, self.margin + r * self.grid_size
+            painter.drawEllipse(QRectF(cx - 5, cy - 5, 10, 10))
+
+        radius = self.grid_size * 0.42
+
+        # 4. Render 3D 拟真棋子 (带有立体高光渐变)
+        for r in range(self.board.size):
+            for c in range(self.board.size):
                 stone = self.board.grid[r][c]
-                if stone == Stone.EMPTY:
-                    continue
-                cx = left + c * cell
-                cy = top + r * cell
-                radius = cell * 0.4
-                if stone == Stone.BLACK:
-                    painter.setBrush(QBrush(Qt.black))
-                else:
-                    painter.setBrush(QBrush(Qt.white))
-                painter.setPen(QPen(Qt.black, 1))
-                painter.drawEllipse(QPointF(cx, cy), radius, radius)
+                if stone != Stone.EMPTY:
+                    cx, cy = self.margin + c * self.grid_size, self.margin + r * self.grid_size
 
-    # ---- 鼠标点击 → 转成棋盘坐标 ----
-    def mousePressEvent(self, event) -> None:
-        if self._game_over:
-            return
-        if event.button() != Qt.LeftButton:
-            return
+                    # Apply radial gradient to simulate 3D volume
+                    gradient = QRadialGradient(cx - radius * 0.3, cy - radius * 0.3, radius)
+                    if stone == Stone.BLACK:
+                        gradient.setColorAt(0, QColor(80, 80, 80))
+                        gradient.setColorAt(1, QColor(10, 10, 10))
+                    else:
+                        gradient.setColorAt(0, QColor(255, 255, 255))
+                        gradient.setColorAt(0.8, QColor(220, 220, 220))
+                        gradient.setColorAt(1, QColor(150, 150, 150))
 
-        size = self.board.size
-        w = self.width()
-        h = self.height()
-        margin = 40
-        effective = min(w - 2 * margin, h - 2 * margin)
-        if effective <= 0:
-            return
-        cell = effective / (size - 1)
-        left = (w - effective) / 2
-        top = (h - effective) / 2
+                    painter.setBrush(QBrush(gradient))
+                    painter.drawEllipse(QRectF(cx - radius, cy - radius, radius * 2, radius * 2))
 
-        x = event.x()
-        y = event.y()
+                    # Highlight the last move
+                    if self.board.last_move == (r, c):
+                        painter.setPen(QPen(QColor(255, 50, 50, 200), 3))
+                        painter.setBrush(Qt.NoBrush)
+                        painter.drawEllipse(QRectF(cx - radius * 0.5, cy - radius * 0.5, radius, radius))
 
-        col_f = (x - left) / cell
-        row_f = (y - top) / cell
-        c = int(round(col_f))
-        r = int(round(row_f))
+        # 5. Render 赛博朋克风的“AI 预测虚影”
+        if self.main_window and self.main_window.pending_ai_move:
+            if self.main_window.blink_state:
+                pm = self.main_window.pending_ai_move
+                pr, pc, pcolor = pm['row'], pm['col'], pm['color']
+                cx, cy = self.margin + pc * self.grid_size, self.margin + pr * self.grid_size
 
-        if not (0 <= r < size and 0 <= c < size):
-            return
+                # Generate high-tech halo effect
+                halo_color = QColor(0, 255, 255, 100) if pcolor == Stone.BLACK else QColor(255, 165, 0, 120)
+                painter.setBrush(QBrush(halo_color))
+                painter.setPen(
+                    QPen(QColor(0, 255, 255) if pcolor == Stone.BLACK else QColor(255, 165, 0), 2, Qt.DashLine))
+                painter.drawEllipse(QRectF(cx - radius, cy - radius, radius * 2, radius * 2))
 
-        # 距离最近交点太远就不算
-        target_x = left + c * cell
-        target_y = top + r * cell
-        dx = x - target_x
-        dy = y - target_y
-        dist_sq = dx * dx + dy * dy
-        if dist_sq > (cell * 0.5) ** 2:
-            return
+                # Center target lock
+                painter.setBrush(QBrush(QColor(255, 0, 0)))
+                painter.setPen(Qt.NoPen)
+                painter.drawEllipse(QRectF(cx - 3, cy - 3, 6, 6))
 
-        if self.on_human_move:
-            self.on_human_move(r, c)
-
-class ReplayWindow(QMainWindow):
-    """
-    棋谱回放窗口：
-    - 只显示棋盘，不允许落子
-    - 通过“上一步 / 下一步 / 重置”按钮控制回放进度
-    """
-
-    def __init__(self, record: GameRecord, parent=None):
-        super().__init__(parent)
-        self.record = record
-        self.board = GomokuBoard(size=record.board_size)
-        self.current_step = 0  # 已经展示到第几手（0 表示空棋盘）
-
-        self.setWindowTitle("棋谱回放")
-        self.resize(600, 650)
-
-        # 棋盘：on_human_move 传 None，禁用点击落子
-        self.board_widget = BoardWidget(self.board, on_human_move=None)
-
-        self.info_label = QLabel(self._build_info_text())
-        self.info_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-
-        self.prev_button = QPushButton("上一步")
-        self.next_button = QPushButton("下一步")
-        self.reset_button = QPushButton("重置")
-
-        self.prev_button.clicked.connect(self.step_back)
-        self.next_button.clicked.connect(self.step_forward)
-        self.reset_button.clicked.connect(self.reset)
-
-        central = QWidget()
-        vbox = QVBoxLayout(central)
-        vbox.addWidget(self.board_widget, stretch=1)
-
-        hbox = QHBoxLayout()
-        hbox.addWidget(self.info_label)
-        hbox.addStretch()
-        hbox.addWidget(self.prev_button)
-        hbox.addWidget(self.next_button)
-        hbox.addWidget(self.reset_button)
-        vbox.addLayout(hbox)
-
-        self.setCentralWidget(central)
-
-        self._refresh_board()
-
-    def _build_info_text(self) -> str:
-        total = len(self.record.moves)
-        winner = self.record.winner
-        if winner == int(Stone.BLACK):
-            win_text = "黑胜"
-        elif winner == int(Stone.WHITE):
-            win_text = "白胜"
-        else:
-            win_text = "平局/未标记"
-        return f"步数：{self.current_step}/{total}    结果：{win_text}"
-
-    def _refresh_board(self) -> None:
-        # 清空棋盘
-        self.board = GomokuBoard(size=self.record.board_size)
-        self.board_widget.board = self.board
-        self.board.move_count = 0
-        self.board.last_move = None
-
-        # 应用前 current_step 手
-        for i in range(self.current_step):
-            mv = self.record.moves[i]
-            stone = Stone(mv.player)
-            self.board.grid[mv.row][mv.col] = stone
-            self.board.move_count += 1
-            self.board.last_move = (mv.row, mv.col)
-
-        self.board_widget.update()
-        self.info_label.setText(self._build_info_text())
-
-    def step_forward(self) -> None:
-        if self.current_step < len(self.record.moves):
-            self.current_step += 1
-            self._refresh_board()
-
-    def step_back(self) -> None:
-        if self.current_step > 0:
-            self.current_step -= 1
-            self._refresh_board()
-
-    def reset(self) -> None:
-        self.current_step = 0
-        self._refresh_board()
 
 class MainWindow(QMainWindow):
-    """
-    上位机主窗口：
-    - 左侧棋盘
-    - 下方状态栏 + “新局”按钮
-    - 内部用 GomokuBoard + HeuristicAI + GameRecorder 驱动
-    """
+    ai_move_ready_signal = pyqtSignal(int, int, object)
+    ai_move_failed_signal = pyqtSignal()
 
-    def __init__(self):
+    def __init__(self, cap=None):
         super().__init__()
+        self.setWindowTitle("🤖 天机手：智能五子棋对弈中枢")
+        self.resize(1050, 700)
 
-        self.setWindowTitle("棋眼 Pro - 五子棋上位机 (PyQt)")
-        self.resize(700, 750)
+        # 🌟 Global QSS Injection (Dark Theme)
+        self.setStyleSheet("""
+            QMainWindow { background-color: #1E1E1E; }
+            QLabel { color: #E0E0E0; font-family: 'Segoe UI', 'Microsoft YaHei'; }
+            QFrame#controlPanel { 
+                background-color: #2D2D30; 
+                border-radius: 15px; 
+            }
+            QPushButton {
+                background-color: #007ACC;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                font-weight: bold;
+            }
+            QPushButton:hover { background-color: #0098FF; }
+            QPushButton:pressed { background-color: #005C99; }
+            QPushButton:disabled { background-color: #555555; color: #888888; }
+            QPushButton#clearBtn { background-color: #D24545; }
+            QPushButton#clearBtn:hover { background-color: #E65A5A; }
 
-        # --- 核心对象 ---
-        self.board = GomokuBoard()
-        # 默认：你执黑，AI 执白
-        self.human_stone = Stone.BLACK
-        self.ai_stone = Stone.WHITE
-        self.ai = HeuristicAI(self.ai_stone)
-        self.recorder = GameRecorder(board_size=self.board.size, first_player=Stone.BLACK)
-        self.game_over = False
+            QComboBox {
+                background-color: #3E3E42;
+                color: white;
+                border: 1px solid #555555;
+                border-radius: 6px;
+                padding: 5px 15px;
+            }
+            QComboBox::drop-down { border: none; }
+            QComboBox QAbstractItemView {
+                background-color: #2D2D30;
+                color: white;
+                selection-background-color: #007ACC;
+            }
+        """)
 
-        # --- UI 组件 ---
-        self.board_widget = BoardWidget(self.board, self.handle_human_move)
+        self.board = GomokuBoard(size=config.BOARD_SIZE)
+        self.stm32_controller = STM32Controller(config.SERIAL_PORT, config.SERIAL_BAUDRATE) if STM32Controller else None
 
-        self.status_label = QLabel("轮到你：黑棋 (●)")
-        self.status_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.pending_ai_move = None
+        self.blink_state = True
+        self.blink_timer = QTimer(self)
+        self.blink_timer.timeout.connect(self.toggle_blink)
 
-        # 角色选择：你执黑 / 你执白
-        self.role_combo = QComboBox()
-        self.role_combo.addItems(["你执黑 (AI 执白)", "你执白 (AI 执黑)"])
-        # 修改时只影响“下一局”，不打断当前对局，所以不用立刻改逻辑
+        self.ai_move_ready_signal.connect(self.set_pending_move)
+        self.ai_move_failed_signal.connect(self.handle_ai_failed)
 
-        # 难度选择
-        self.level_combo = QComboBox()
-        self.level_combo.addItems(["简单", "中等", "困难"])
+        self.init_ui()
 
-        self.new_game_button = QPushButton("新局")
-        self.new_game_button.clicked.connect(self.new_game)
+        self.camera_queue = Queue()
+        self.camera_thread = CameraThread(self.camera_queue, cap=cap)
+        self.camera_thread.start()
 
-        self.replay_button = QPushButton("回放棋谱")
-        self.replay_button.clicked.connect(self.open_replay)
+        self.update_timer = QTimer(self)
+        self.update_timer.timeout.connect(self.poll_camera_queue)
+        self.update_timer.start(100)
 
-        # 布局
-        central = QWidget()
-        vbox = QVBoxLayout(central)
-        vbox.addWidget(self.board_widget, stretch=1)
+        self.ai_is_thinking = False
 
-        hbox = QHBoxLayout()
-        hbox.addWidget(self.status_label)
-        hbox.addStretch()
-        hbox.addWidget(QLabel("角色:"))
-        hbox.addWidget(self.role_combo)
-        hbox.addWidget(QLabel("难度:"))
-        hbox.addWidget(self.level_combo)
-        hbox.addWidget(self.replay_button)
-        hbox.addWidget(self.new_game_button)
-        vbox.addLayout(hbox)
-
-        self.setCentralWidget(central)
-
-    def _create_ai_for_level(self, stone: Stone) -> HeuristicAI:
-        """
-        根据难度下拉框，创建对应配置的 AI。
-        简单：只看一手，范围小
-        中等：默认参数
-        困难：范围更大，更多两层搜索
-        """
-        idx = self.level_combo.currentIndex()
-        if idx == 0:  # 简单
-            return HeuristicAI(stone, search_radius=1, max_search_candidates=0)
-        elif idx == 1:  # 中等
-            return HeuristicAI(stone, search_radius=2, max_search_candidates=20)
-        else:  # 困难
-            return HeuristicAI(stone, search_radius=3, max_search_candidates=40)
-
-    def _status_text_for(self, stone: Stone, is_human: bool) -> str:
-        who = "你" if is_human else "AI"
-        if stone == Stone.BLACK:
-            color = "黑棋 (●)"
-        else:
-            color = "白棋 (○)"
-        return f"轮到{who}：{color}"
-    # ---- 新局 ----
-    def new_game(self) -> None:
-        if not self.game_over:
-            reply = QMessageBox.question(
-                self,
-                "开始新局？",
-                "当前对局尚未结束，确定要开始新局吗？",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No,
-            )
-            if reply != QMessageBox.Yes:
-                return
-
-        # 重置棋盘
-        self.board = GomokuBoard()
-
-        # 根据下拉框决定谁执黑
-        role_index = self.role_combo.currentIndex()
-        if role_index == 0:
-            # 你执黑
-            self.human_stone = Stone.BLACK
-            self.ai_stone = Stone.WHITE
-        else:
-            # 你执白
-            self.human_stone = Stone.WHITE
-            self.ai_stone = Stone.BLACK
-
-        # 五子棋规则：黑棋先手
-        self.board.current_player = Stone.BLACK
-        first_player = Stone.BLACK
-
-        # 按难度创建 AI
-        self.ai = self._create_ai_for_level(self.ai_stone)
-        self.recorder = GameRecorder(board_size=self.board.size, first_player=first_player)
-        self.game_over = False
-
-        self.board_widget.board = self.board
-        self.board_widget.set_game_over(False)
+    def toggle_blink(self):
+        self.blink_state = not self.blink_state
         self.board_widget.update()
 
-        # 如果 AI 执黑，则 AI 先手
-        if self.ai_stone == Stone.BLACK:
-            self.status_label.setText("AI 先手中...")
-            QApplication.processEvents()
-            self._ai_move_once()
+    def init_ui(self):
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        main_layout = QHBoxLayout(central_widget)
+        main_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout.setSpacing(25)
+
+        self.board_widget = BoardWidget(self.board, main_window=self)
+
+        # Build the Control Panel container
+        right_panel = QFrame()
+        right_panel.setObjectName("controlPanel")
+
+        # Apply drop shadow effect
+        shadow = QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(20)
+        shadow.setColor(QColor(0, 0, 0, 150))
+        shadow.setOffset(0, 0)
+        right_panel.setGraphicsEffect(shadow)
+
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(25, 30, 25, 30)
+        right_layout.setSpacing(25)
+
+        # Panel Title
+        title_label = QLabel("🚀 天眼智控中枢")
+        title_label.setAlignment(Qt.AlignCenter)
+        title_label.setStyleSheet("font-size: 24px; font-weight: bold; color: #00E5FF; margin-bottom: 10px;")
+
+        # Status Display
+        self.status_label = QLabel("🟢 状态：系统就绪，等待开局")
+        self.status_label.setWordWrap(True)
+        self.status_label.setStyleSheet(
+            "font-size: 16px; font-weight: bold; padding: 15px; background-color: #1E1E1E; border-radius: 8px; border-left: 4px solid #00E5FF;")
+
+        # Mode Selection
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItems(["👤🤖 人机对战 (AI执白)", "👤👤 人人对战 (充当裁判)", "🤖🤖 双机对战 (AI左右互搏)"])
+        self.mode_combo.setStyleSheet("font-size: 15px; min-height: 40px;")
+        self.mode_combo.currentIndexChanged.connect(self.on_mode_changed)
+
+        # Action Buttons
+        self.btn_ai_move = QPushButton("🤖 请求 AI 决策")
+        self.btn_ai_move.setStyleSheet("font-size: 16px; min-height: 50px;")
+        self.btn_ai_move.clicked.connect(self.trigger_ai_move)
+
+        self.btn_clear = QPushButton("🔄 格式化物理棋盘")
+        self.btn_clear.setObjectName("clearBtn")
+        self.btn_clear.setStyleSheet("font-size: 16px; min-height: 50px;")
+        self.btn_clear.clicked.connect(self.reset_game)
+
+        # Assemble layout
+        right_layout.addWidget(title_label)
+        right_layout.addWidget(self.status_label)
+        right_layout.addWidget(QLabel("Operating Mode:", styleSheet="color: #AAAAAA; font-size: 14px;"))
+        right_layout.addWidget(self.mode_combo)
+        right_layout.addSpacing(20)
+        right_layout.addWidget(self.btn_ai_move)
+        right_layout.addStretch()
+        right_layout.addWidget(self.btn_clear)
+
+        main_layout.addWidget(self.board_widget, stretch=5)
+        main_layout.addWidget(right_panel, stretch=3)
+
+    def on_mode_changed(self, index):
+        if index == 1:
+            self.btn_ai_move.setEnabled(False)
+            self.btn_ai_move.setText("🚫 AI 已禁用")
+            self.status_label.setText("状态：人人对战模式")
         else:
-            # 你执黑，轮到你
-            self.status_label.setText(self._status_text_for(self.human_stone, is_human=True))
-    def open_replay(self) -> None:
-        """
-        选择一个 records/*.json 棋谱文件，并打开回放窗口。
-        """
-        records_dir = Path.cwd() / "records"
-        if not records_dir.exists():
-            QMessageBox.information(self, "没有棋谱", "当前目录下还没有 records/ 目录，请先完成一局并保存棋谱。")
+            self.btn_ai_move.setEnabled(True)
+            self.btn_ai_move.setText("🤖 让 AI 下一步")
+            self.status_label.setText("状态：等待落子...")
+
+    def poll_camera_queue(self):
+        latest_state = consume_latest_board_state(self.camera_queue)
+        if latest_state is not None:
+            update_board_from_camera(self.board, latest_state)
+
+            # 🌟 视觉校验：摄像头确认玩家摆对了实体棋子！
+            if self.pending_ai_move:
+                r = self.pending_ai_move['row']
+                c = self.pending_ai_move['col']
+                expected_color = self.pending_ai_move['color']
+
+                if self.board.grid[r][c] == expected_color:
+                    print(f"✅ 视觉确认：成功放置 {('黑棋' if expected_color == Stone.BLACK else '白棋')} ！")
+                    self.pending_ai_move = None
+                    self.blink_timer.stop()
+                    self.btn_ai_move.setEnabled(True)
+                    self.btn_ai_move.setText("🤖 让 AI 下一步")
+                    self.status_label.setText("状态：等待落子...")
+
+                    # 🌟 彩蛋：双机对战(模式2) 的全自动连发逻辑！
+                    if self.mode_combo.currentIndex() == 2:
+                        self.status_label.setText("🔥 自动触发下一手...")
+                        # 等你手缩回去 1.5 秒后，自动命令 AI 继续下！
+                        QTimer.singleShot(1500, self.trigger_ai_move)
+
+            self.board_widget.update()
+
+    def trigger_ai_move(self):
+        if self.ai_is_thinking or get_best_move is None:
             return
 
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "选择棋谱文件",
-            str(records_dir),
-            "Gomoku Records (*.json);;All Files (*)",
-        )
-        if not file_path:
-            return
+        self.status_label.setText("🧠 状态：AI 正在思考...")
+        self.ai_is_thinking = True
+        self.btn_ai_move.setEnabled(False)
 
+        # 启动纯后台计算线程
+        threading.Thread(target=self._ai_worker_thread, daemon=True).start()
+
+    def _ai_worker_thread(self):
         try:
-            record = GameRecorder.load(Path(file_path))
+            board_copy = copy.deepcopy(self.board)
+
+            black_count = 0
+            white_count = 0
+            for r in range(board_copy.size):
+                for c in range(board_copy.size):
+                    if board_copy.grid[r][c] == Stone.BLACK:
+                        black_count += 1
+                    elif board_copy.grid[r][c] == Stone.WHITE:
+                        white_count += 1
+
+            ai_color = Stone.BLACK if black_count == white_count else Stone.WHITE
+            color_name = "黑棋" if ai_color == Stone.BLACK else "白棋"
+            print(f"🤖 [AI 引擎] 当前判定 AI 执 {color_name}...")
+
+            best_r, best_c = get_best_move(board_copy, ai_color)
+
+            if best_r is not None and best_c is not None:
+                # 强制转换为原生 int，防止 numpy 类型引发绘图错误
+                best_r, best_c = int(best_r), int(best_c)
+
+                if self.stm32_controller:
+                    self.stm32_controller.execute_move(best_r, best_c)
+                else:
+                    print(f"🎯 [指令下发] 请把 {color_name} 放在：行 {best_r}, 列 {best_c}")
+
+                # 🌟 发射安全信号给主线程
+                self.ai_move_ready_signal.emit(best_r, best_c, ai_color)
+            else:
+                self.ai_move_failed_signal.emit()
+
         except Exception as e:
-            QMessageBox.warning(self, "加载失败", f"无法加载棋谱文件：\n{e}")
-            return
+            print(f"❌ 后台执行线程发生严重错误: {e}")
+            self.ai_move_failed_signal.emit()
 
-        replay_win = ReplayWindow(record, parent=self)
-        replay_win.show()
+    # 🌟 信号接收者 1：成功算出落子
+    def set_pending_move(self, r, c, color):
+        self.ai_is_thinking = False
+        self.pending_ai_move = {'row': r, 'col': c, 'color': color}
+        color_name = "黑子" if color == Stone.BLACK else "白子"
+        self.status_label.setText(f"👉 请在红圈处放置实体 {color_name}")
+        self.btn_ai_move.setText(f"⏳ 等待放置...")
+        self.blink_timer.start(500)
+        self.board_widget.update()  # 强制立刻刷新 UI 画出虚影
 
-    def _ai_move_once(self) -> None:
-        if self.game_over:
-            return
-        if self.board.current_player != self.ai_stone:
-            return
+    # 🌟 信号接收者 2：计算失败（比如棋盘满了）
+    def handle_ai_failed(self):
+        self.ai_is_thinking = False
+        self.status_label.setText("状态：等待落子...")
+        self.btn_ai_move.setEnabled(True)
 
-        ai_move = self.ai.select_move(self.board)
-        if ai_move is None:
-            # AI 无棋可下
-            self.finish_game(None)
-            return
-
-        self.board.place_stone(*ai_move)
-        self.recorder.add_move(self.ai_stone, ai_move)
+    def reset_game(self):
+        self.board.reset()
+        self.pending_ai_move = None
+        self.blink_timer.stop()
+        self.ai_is_thinking = False
+        self.btn_ai_move.setEnabled(True)
+        self.btn_ai_move.setText("🤖 让 AI 下一步")
         self.board_widget.update()
+        self.status_label.setText("状态：已重置，等待开局")
 
-        winner = self.board.check_winner()
-        if winner is not None or self.board.is_full():
-            self.finish_game(winner)
-            return
-
-        # 轮到人类
-        self.status_label.setText(self._status_text_for(self.human_stone, is_human=True))
-
-    # ---- 人类落子回调 ----
-    def handle_human_move(self, row: int, col: int) -> None:
-        if self.game_over:
-            return
-        # 只在轮到人的时候响应点击
-        if self.board.current_player != self.human_stone:
-            return
-        if not self.board.is_valid_move(row, col):
-            return
-
-        # 人类下子
-        self.board.place_stone(row, col)
-        self.recorder.add_move(self.human_stone, (row, col))
-        self.board_widget.update()
-
-        winner = self.board.check_winner()
-        if winner is not None or self.board.is_full():
-            self.finish_game(winner)
-            return
-
-        # AI 回合
-        self.status_label.setText(self._status_text_for(self.ai_stone, is_human=False))
-        QApplication.processEvents()
-
-        self._ai_move_once()
-
-
-    # ---- 对局结束 ----
-    def finish_game(self, winner: Optional[Stone]) -> None:
-        self.game_over = True
-        self.board_widget.set_game_over(True)
-        self.recorder.set_winner(winner)
-
-        if winner is None:
-            msg = "平局。"
-        elif winner == self.human_stone:
-            msg = f"你赢了！（{'黑' if winner == Stone.BLACK else '白'}方胜）"
-        elif winner == self.ai_stone:
-            msg = f"AI 获胜（{'黑' if winner == Stone.BLACK else '白'}方胜）"
-        else:
-            # 理论上不会出现
-            msg = "对局结束。"
-
-        reply = QMessageBox.question(
-            self,
-            "对局结束",
-            msg + "\n\n是否保存棋谱到 records/ 目录？",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.Yes,
-        )
-        if reply == QMessageBox.Yes:
-            path = self.recorder.save_to_default(prefix="gui_human_vs_ai")
-            QMessageBox.information(self, "保存成功", f"棋谱已保存到：\n{path}")
-        else:
-            QMessageBox.information(self, "对局结束", msg)
-
-def main() -> None:
-    import sys
-
-    app = QApplication(sys.argv)
-    window = MainWindow()
-    window.show()
-    sys.exit(app.exec_())
-
-
-if __name__ == "__main__":
-    main()
+    def closeEvent(self, event):
+        self.update_timer.stop()
+        if getattr(self, "camera_thread", None): self.camera_thread.stop()
+        if getattr(self, "stm32_controller", None): self.stm32_controller.close()
+        super().closeEvent(event)
