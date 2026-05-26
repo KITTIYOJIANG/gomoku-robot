@@ -1,0 +1,30 @@
+board_001_empty.jpg
+black:
+white:
+board_002_black_center.jpg
+black: 7,7
+white:
+board_003_white_center.jpg
+black:
+white: 7,7
+board_004_black_star_points.jpg
+black: 3,3; 3,11; 7,7; 11,3; 11,11
+white:
+board_005_mixed_3_stones.jpg
+black: 7,7; 7,8
+white: 8,7
+board_006_mixed_5_stones.jpg
+black: 7,7; 7,8; 8,8
+white: 6,7; 8,7
+board_007_low_light.jpg
+black: 7,7; 7,8; 8,8
+white: 6,7; 8,7
+board_008_reflection_white.jpg
+black: 7,7
+white: 7,8; 8,7
+board_009_edge_stones.jpg
+black: 0,0; 0,14
+white: 14,0; 14,14
+board_010_random_game.jpg
+black: 7,7; 7,8; 8,8; 6,6; 9,7
+white: 8,7; 6,7; 9,8; 5,6; 10,7
