@@ -145,6 +145,21 @@ def run_benchmark(args: argparse.Namespace) -> int:
             soft_white_min_center=args.soft_white_min_center,
             soft_white_min_p10=args.soft_white_min_p10,
             soft_white_min_median=args.soft_white_min_median,
+            low_light_white_min_diff=args.low_light_white_min_diff,
+            low_light_white_max_diff=args.low_light_white_max_diff,
+            low_light_white_min_bg=args.low_light_white_min_bg,
+            low_light_white_min_center=args.low_light_white_min_center,
+            low_light_white_min_p10=args.low_light_white_min_p10,
+            low_light_white_min_median=args.low_light_white_min_median,
+            low_light_white_max_std=args.low_light_white_max_std,
+            shadow_white_min_diff=args.shadow_white_min_diff,
+            shadow_white_max_diff=args.shadow_white_max_diff,
+            shadow_white_min_bg=args.shadow_white_min_bg,
+            shadow_white_min_center=args.shadow_white_min_center,
+            shadow_white_min_bright_ratio=args.shadow_white_min_bright_ratio,
+            shadow_white_max_p10=args.shadow_white_max_p10,
+            shadow_white_min_median=args.shadow_white_min_median,
+            shadow_white_min_std=args.shadow_white_min_std,
         )
         pred_black, pred_white = collect_predictions(matrix)
 
@@ -192,13 +207,28 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--black-rescue-area-ratio", type=float, default=0.44)
     parser.add_argument("--white-disk-radius", type=int, default=12)
     parser.add_argument("--soft-white-min-diff", type=float, default=8.0)
-    parser.add_argument("--soft-white-max-diff", type=float, default=19.0)
+    parser.add_argument("--soft-white-max-diff", type=float, default=27.0)
     parser.add_argument("--soft-white-bright-diff", type=float, default=20.0)
     parser.add_argument("--soft-white-area-ratio", type=float, default=0.32)
     parser.add_argument("--soft-white-min-bg", type=float, default=155.0)
     parser.add_argument("--soft-white-min-center", type=float, default=170.0)
     parser.add_argument("--soft-white-min-p10", type=float, default=80.0)
     parser.add_argument("--soft-white-min-median", type=float, default=190.0)
+    parser.add_argument("--low-light-white-min-diff", type=float, default=15.0)
+    parser.add_argument("--low-light-white-max-diff", type=float, default=19.0)
+    parser.add_argument("--low-light-white-min-bg", type=float, default=145.0)
+    parser.add_argument("--low-light-white-min-center", type=float, default=165.0)
+    parser.add_argument("--low-light-white-min-p10", type=float, default=120.0)
+    parser.add_argument("--low-light-white-min-median", type=float, default=170.0)
+    parser.add_argument("--low-light-white-max-std", type=float, default=35.0)
+    parser.add_argument("--shadow-white-min-diff", type=float, default=-8.0)
+    parser.add_argument("--shadow-white-max-diff", type=float, default=0.0)
+    parser.add_argument("--shadow-white-min-bg", type=float, default=110.0)
+    parser.add_argument("--shadow-white-min-center", type=float, default=105.0)
+    parser.add_argument("--shadow-white-min-bright-ratio", type=float, default=0.40)
+    parser.add_argument("--shadow-white-max-p10", type=float, default=30.0)
+    parser.add_argument("--shadow-white-min-median", type=float, default=130.0)
+    parser.add_argument("--shadow-white-min-std", type=float, default=60.0)
     return parser
 
 

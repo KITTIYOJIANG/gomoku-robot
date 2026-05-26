@@ -44,13 +44,28 @@ def classify_grid_point(
     black_rescue_area_ratio: float = 0.44,
     white_disk_radius: int = 12,
     soft_white_min_diff: float = 8.0,
-    soft_white_max_diff: float = 19.0,
+    soft_white_max_diff: float = 27.0,
     soft_white_bright_diff: float = 20.0,
     soft_white_area_ratio: float = 0.32,
     soft_white_min_bg: float = 155.0,
     soft_white_min_center: float = 170.0,
     soft_white_min_p10: float = 80.0,
     soft_white_min_median: float = 190.0,
+    low_light_white_min_diff: float = 15.0,
+    low_light_white_max_diff: float = 19.0,
+    low_light_white_min_bg: float = 145.0,
+    low_light_white_min_center: float = 165.0,
+    low_light_white_min_p10: float = 120.0,
+    low_light_white_min_median: float = 170.0,
+    low_light_white_max_std: float = 35.0,
+    shadow_white_min_diff: float = -8.0,
+    shadow_white_max_diff: float = 0.0,
+    shadow_white_min_bg: float = 110.0,
+    shadow_white_min_center: float = 105.0,
+    shadow_white_min_bright_ratio: float = 0.40,
+    shadow_white_max_p10: float = 30.0,
+    shadow_white_min_median: float = 130.0,
+    shadow_white_min_std: float = 60.0,
 ) -> int:
     xi, yi = int(round(x)), int(round(y))
     center_roi = _clip_roi(gray, xi, yi, roi_radius)
@@ -78,13 +93,37 @@ def classify_grid_point(
         return WHITE
 
     soft_white_bright_ratio = float(np.mean(center_roi > bg_mean + soft_white_bright_diff))
+    white_disk_p10 = float(np.percentile(white_disk, 10))
+    white_disk_median = float(np.median(white_disk))
+    white_disk_std = float(np.std(white_disk))
     if (
         soft_white_min_diff <= center_diff <= soft_white_max_diff
         and bg_mean >= soft_white_min_bg
         and center_mean >= soft_white_min_center
         and soft_white_bright_ratio >= soft_white_area_ratio
-        and float(np.percentile(white_disk, 10)) >= soft_white_min_p10
-        and float(np.median(white_disk)) >= soft_white_min_median
+        and white_disk_p10 >= soft_white_min_p10
+        and white_disk_median >= soft_white_min_median
+    ):
+        return WHITE
+
+    if (
+        low_light_white_min_diff <= center_diff <= low_light_white_max_diff
+        and bg_mean >= low_light_white_min_bg
+        and center_mean >= low_light_white_min_center
+        and white_disk_p10 >= low_light_white_min_p10
+        and white_disk_median >= low_light_white_min_median
+        and white_disk_std <= low_light_white_max_std
+    ):
+        return WHITE
+
+    if (
+        shadow_white_min_diff <= center_diff <= shadow_white_max_diff
+        and bg_mean >= shadow_white_min_bg
+        and center_mean >= shadow_white_min_center
+        and bright_ratio >= shadow_white_min_bright_ratio
+        and white_disk_p10 <= shadow_white_max_p10
+        and white_disk_median >= shadow_white_min_median
+        and white_disk_std >= shadow_white_min_std
     ):
         return WHITE
 
@@ -104,13 +143,28 @@ def detect_stones(
     black_rescue_area_ratio: float = 0.44,
     white_disk_radius: int = 12,
     soft_white_min_diff: float = 8.0,
-    soft_white_max_diff: float = 19.0,
+    soft_white_max_diff: float = 27.0,
     soft_white_bright_diff: float = 20.0,
     soft_white_area_ratio: float = 0.32,
     soft_white_min_bg: float = 155.0,
     soft_white_min_center: float = 170.0,
     soft_white_min_p10: float = 80.0,
     soft_white_min_median: float = 190.0,
+    low_light_white_min_diff: float = 15.0,
+    low_light_white_max_diff: float = 19.0,
+    low_light_white_min_bg: float = 145.0,
+    low_light_white_min_center: float = 165.0,
+    low_light_white_min_p10: float = 120.0,
+    low_light_white_min_median: float = 170.0,
+    low_light_white_max_std: float = 35.0,
+    shadow_white_min_diff: float = -8.0,
+    shadow_white_max_diff: float = 0.0,
+    shadow_white_min_bg: float = 110.0,
+    shadow_white_min_center: float = 105.0,
+    shadow_white_min_bright_ratio: float = 0.40,
+    shadow_white_max_p10: float = 30.0,
+    shadow_white_min_median: float = 130.0,
+    shadow_white_min_std: float = 60.0,
 ) -> list[list[int]]:
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if image.ndim == 3 else image
     board_size = grid_points.shape[0]
@@ -140,6 +194,21 @@ def detect_stones(
                 soft_white_min_center=soft_white_min_center,
                 soft_white_min_p10=soft_white_min_p10,
                 soft_white_min_median=soft_white_min_median,
+                low_light_white_min_diff=low_light_white_min_diff,
+                low_light_white_max_diff=low_light_white_max_diff,
+                low_light_white_min_bg=low_light_white_min_bg,
+                low_light_white_min_center=low_light_white_min_center,
+                low_light_white_min_p10=low_light_white_min_p10,
+                low_light_white_min_median=low_light_white_min_median,
+                low_light_white_max_std=low_light_white_max_std,
+                shadow_white_min_diff=shadow_white_min_diff,
+                shadow_white_max_diff=shadow_white_max_diff,
+                shadow_white_min_bg=shadow_white_min_bg,
+                shadow_white_min_center=shadow_white_min_center,
+                shadow_white_min_bright_ratio=shadow_white_min_bright_ratio,
+                shadow_white_max_p10=shadow_white_max_p10,
+                shadow_white_min_median=shadow_white_min_median,
+                shadow_white_min_std=shadow_white_min_std,
             )
 
     return matrix
