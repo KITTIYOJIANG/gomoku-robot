@@ -134,6 +134,17 @@ def run_benchmark(args: argparse.Namespace) -> int:
             white_diff=args.white_diff,
             black_area_ratio=args.black_area_ratio,
             white_area_ratio=args.white_area_ratio,
+            black_rescue_diff=args.black_rescue_diff,
+            black_rescue_area_ratio=args.black_rescue_area_ratio,
+            white_disk_radius=args.white_disk_radius,
+            soft_white_min_diff=args.soft_white_min_diff,
+            soft_white_max_diff=args.soft_white_max_diff,
+            soft_white_bright_diff=args.soft_white_bright_diff,
+            soft_white_area_ratio=args.soft_white_area_ratio,
+            soft_white_min_bg=args.soft_white_min_bg,
+            soft_white_min_center=args.soft_white_min_center,
+            soft_white_min_p10=args.soft_white_min_p10,
+            soft_white_min_median=args.soft_white_min_median,
         )
         pred_black, pred_white = collect_predictions(matrix)
 
@@ -177,6 +188,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--white-diff", type=float, default=35.0)
     parser.add_argument("--black-area-ratio", type=float, default=0.35)
     parser.add_argument("--white-area-ratio", type=float, default=0.35)
+    parser.add_argument("--black-rescue-diff", type=float, default=20.0)
+    parser.add_argument("--black-rescue-area-ratio", type=float, default=0.44)
+    parser.add_argument("--white-disk-radius", type=int, default=12)
+    parser.add_argument("--soft-white-min-diff", type=float, default=8.0)
+    parser.add_argument("--soft-white-max-diff", type=float, default=19.0)
+    parser.add_argument("--soft-white-bright-diff", type=float, default=20.0)
+    parser.add_argument("--soft-white-area-ratio", type=float, default=0.32)
+    parser.add_argument("--soft-white-min-bg", type=float, default=155.0)
+    parser.add_argument("--soft-white-min-center", type=float, default=170.0)
+    parser.add_argument("--soft-white-min-p10", type=float, default=80.0)
+    parser.add_argument("--soft-white-min-median", type=float, default=190.0)
     return parser
 
 
