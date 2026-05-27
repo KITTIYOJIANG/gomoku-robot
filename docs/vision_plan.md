@@ -82,6 +82,41 @@ python tools/live_vision_monitor.py --camera-id 0 --width 1280 --height 720 --co
 
 Press `q` in the OpenCV window to exit.
 
+### Live Benchmark Capture
+
+Use `--capture-dir` to turn the live monitor into a data collection tool. Press `s` in the OpenCV window to save one raw frame, one annotated frame, and a blank label block.
+
+```bash
+python tools/live_vision_monitor.py --camera-id 0 --corners "72,18;513,28;508,461;74,468" --capture-dir calibration_tools/live_benchmark_20260527
+```
+
+Each saved sample creates:
+
+```text
+calibration_tools/live_benchmark_20260527/live_board_001.jpg
+calibration_tools/live_benchmark_20260527/annotated/live_board_001_detected.jpg
+calibration_tools/live_benchmark_20260527/label.txt
+```
+
+Fill `label.txt` manually after capture:
+
+```text
+live_board_001.jpg
+black: 7,7; 7,8
+white: 8,7
+```
+
+Recommended first live dataset:
+
+- empty board
+- black center
+- white center
+- low light
+- reflection
+- edge stones
+- random game
+- mixed game
+
 ## Benchmark
 
 The current static benchmark dataset is under `calibration_tools/`.
@@ -97,6 +132,12 @@ black recall: 22/22 = 100.00%
 white recall: 15/15 = 100.00%
 false black: 0
 false white: 0
+```
+
+After collecting a live dataset, run:
+
+```bash
+python tools/benchmark_vision.py --image-dir calibration_tools/live_benchmark_20260527 --labels calibration_tools/live_benchmark_20260527/label.txt --corners "new live corners"
 ```
 
 ## Known Limitations
