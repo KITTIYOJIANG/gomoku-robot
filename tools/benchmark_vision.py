@@ -32,6 +32,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from vision.board_detector import load_image
+from vision.detection_cli import add_detection_arguments, detection_kwargs
 from vision.grid_mapper import generate_grid_points, parse_corners
 from vision.stone_detector import detect_stones
 
@@ -125,72 +126,7 @@ def run_benchmark(args: argparse.Namespace) -> int:
     for entry in labels:
         image_path = image_dir / entry.image_name
         image = load_image(image_path)
-        matrix = detect_stones(
-            image,
-            grid_points,
-            roi_radius=args.roi_radius,
-            bg_radius=args.bg_radius,
-            black_diff=args.black_diff,
-            white_diff=args.white_diff,
-            black_area_ratio=args.black_area_ratio,
-            white_area_ratio=args.white_area_ratio,
-            black_rescue_diff=args.black_rescue_diff,
-            black_rescue_area_ratio=args.black_rescue_area_ratio,
-            low_light_black_min_diff=args.low_light_black_min_diff,
-            low_light_black_max_diff=args.low_light_black_max_diff,
-            low_light_black_min_bg=args.low_light_black_min_bg,
-            low_light_black_max_bg=args.low_light_black_max_bg,
-            low_light_black_min_center=args.low_light_black_min_center,
-            low_light_black_max_center=args.low_light_black_max_center,
-            low_light_black_min_bright_ratio=args.low_light_black_min_bright_ratio,
-            low_light_black_max_p10=args.low_light_black_max_p10,
-            low_light_black_min_median=args.low_light_black_min_median,
-            low_light_black_max_median=args.low_light_black_max_median,
-            low_light_black_min_std=args.low_light_black_min_std,
-            low_light_black_max_std=args.low_light_black_max_std,
-            low_light_black_min_green_red_delta=args.low_light_black_min_green_red_delta,
-            white_disk_radius=args.white_disk_radius,
-            soft_white_min_diff=args.soft_white_min_diff,
-            soft_white_max_diff=args.soft_white_max_diff,
-            soft_white_bright_diff=args.soft_white_bright_diff,
-            soft_white_area_ratio=args.soft_white_area_ratio,
-            soft_white_min_bg=args.soft_white_min_bg,
-            soft_white_min_center=args.soft_white_min_center,
-            soft_white_min_p10=args.soft_white_min_p10,
-            soft_white_min_median=args.soft_white_min_median,
-            low_light_white_min_diff=args.low_light_white_min_diff,
-            low_light_white_max_diff=args.low_light_white_max_diff,
-            low_light_white_min_bg=args.low_light_white_min_bg,
-            low_light_white_min_center=args.low_light_white_min_center,
-            low_light_white_min_p10=args.low_light_white_min_p10,
-            low_light_white_min_median=args.low_light_white_min_median,
-            low_light_white_max_std=args.low_light_white_max_std,
-            shadow_white_min_diff=args.shadow_white_min_diff,
-            shadow_white_max_diff=args.shadow_white_max_diff,
-            shadow_white_min_bg=args.shadow_white_min_bg,
-            shadow_white_min_center=args.shadow_white_min_center,
-            shadow_white_min_bright_ratio=args.shadow_white_min_bright_ratio,
-            shadow_white_max_p10=args.shadow_white_max_p10,
-            shadow_white_min_median=args.shadow_white_min_median,
-            shadow_white_min_std=args.shadow_white_min_std,
-            subtle_white_min_diff=args.subtle_white_min_diff,
-            subtle_white_max_diff=args.subtle_white_max_diff,
-            subtle_white_min_bg=args.subtle_white_min_bg,
-            subtle_white_min_center=args.subtle_white_min_center,
-            subtle_white_min_bright_ratio=args.subtle_white_min_bright_ratio,
-            subtle_white_min_p10=args.subtle_white_min_p10,
-            subtle_white_min_median=args.subtle_white_min_median,
-            subtle_white_max_std=args.subtle_white_max_std,
-            color_white_min_green_red_delta=args.color_white_min_green_red_delta,
-            edge_white_min_diff=args.edge_white_min_diff,
-            edge_white_max_diff=args.edge_white_max_diff,
-            edge_white_min_bg=args.edge_white_min_bg,
-            edge_white_min_center=args.edge_white_min_center,
-            edge_white_max_bright_ratio=args.edge_white_max_bright_ratio,
-            edge_white_min_p10=args.edge_white_min_p10,
-            edge_white_min_median=args.edge_white_min_median,
-            edge_white_max_std=args.edge_white_max_std,
-        )
+        matrix = detect_stones(image, grid_points, **detection_kwargs(args))
         pred_black, pred_white = collect_predictions(matrix)
 
         black_hits = pred_black & entry.black
@@ -227,68 +163,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--labels", default="calibration_tools/label.txt")
     parser.add_argument("--corners", required=True)
     parser.add_argument("--board-size", type=int, default=15)
-    parser.add_argument("--roi-radius", type=int, default=14)
-    parser.add_argument("--bg-radius", type=int, default=28)
-    parser.add_argument("--black-diff", type=float, default=35.0)
-    parser.add_argument("--white-diff", type=float, default=35.0)
-    parser.add_argument("--black-area-ratio", type=float, default=0.35)
-    parser.add_argument("--white-area-ratio", type=float, default=0.35)
-    parser.add_argument("--black-rescue-diff", type=float, default=20.0)
-    parser.add_argument("--black-rescue-area-ratio", type=float, default=0.44)
-    parser.add_argument("--low-light-black-min-diff", type=float, default=0.0)
-    parser.add_argument("--low-light-black-max-diff", type=float, default=14.0)
-    parser.add_argument("--low-light-black-min-bg", type=float, default=105.0)
-    parser.add_argument("--low-light-black-max-bg", type=float, default=120.0)
-    parser.add_argument("--low-light-black-min-center", type=float, default=115.0)
-    parser.add_argument("--low-light-black-max-center", type=float, default=130.0)
-    parser.add_argument("--low-light-black-min-bright-ratio", type=float, default=0.55)
-    parser.add_argument("--low-light-black-max-p10", type=float, default=30.0)
-    parser.add_argument("--low-light-black-min-median", type=float, default=140.0)
-    parser.add_argument("--low-light-black-max-median", type=float, default=170.0)
-    parser.add_argument("--low-light-black-min-std", type=float, default=55.0)
-    parser.add_argument("--low-light-black-max-std", type=float, default=70.0)
-    parser.add_argument("--low-light-black-min-green-red-delta", type=float, default=5.0)
-    parser.add_argument("--white-disk-radius", type=int, default=12)
-    parser.add_argument("--soft-white-min-diff", type=float, default=8.0)
-    parser.add_argument("--soft-white-max-diff", type=float, default=27.0)
-    parser.add_argument("--soft-white-bright-diff", type=float, default=20.0)
-    parser.add_argument("--soft-white-area-ratio", type=float, default=0.32)
-    parser.add_argument("--soft-white-min-bg", type=float, default=155.0)
-    parser.add_argument("--soft-white-min-center", type=float, default=170.0)
-    parser.add_argument("--soft-white-min-p10", type=float, default=80.0)
-    parser.add_argument("--soft-white-min-median", type=float, default=190.0)
-    parser.add_argument("--low-light-white-min-diff", type=float, default=15.0)
-    parser.add_argument("--low-light-white-max-diff", type=float, default=19.0)
-    parser.add_argument("--low-light-white-min-bg", type=float, default=145.0)
-    parser.add_argument("--low-light-white-min-center", type=float, default=165.0)
-    parser.add_argument("--low-light-white-min-p10", type=float, default=120.0)
-    parser.add_argument("--low-light-white-min-median", type=float, default=170.0)
-    parser.add_argument("--low-light-white-max-std", type=float, default=35.0)
-    parser.add_argument("--shadow-white-min-diff", type=float, default=-8.0)
-    parser.add_argument("--shadow-white-max-diff", type=float, default=0.0)
-    parser.add_argument("--shadow-white-min-bg", type=float, default=110.0)
-    parser.add_argument("--shadow-white-min-center", type=float, default=105.0)
-    parser.add_argument("--shadow-white-min-bright-ratio", type=float, default=0.40)
-    parser.add_argument("--shadow-white-max-p10", type=float, default=30.0)
-    parser.add_argument("--shadow-white-min-median", type=float, default=130.0)
-    parser.add_argument("--shadow-white-min-std", type=float, default=60.0)
-    parser.add_argument("--subtle-white-min-diff", type=float, default=5.0)
-    parser.add_argument("--subtle-white-max-diff", type=float, default=8.0)
-    parser.add_argument("--subtle-white-min-bg", type=float, default=180.0)
-    parser.add_argument("--subtle-white-min-center", type=float, default=185.0)
-    parser.add_argument("--subtle-white-min-bright-ratio", type=float, default=0.10)
-    parser.add_argument("--subtle-white-min-p10", type=float, default=160.0)
-    parser.add_argument("--subtle-white-min-median", type=float, default=195.0)
-    parser.add_argument("--subtle-white-max-std", type=float, default=35.0)
-    parser.add_argument("--color-white-min-green-red-delta", type=float, default=25.0)
-    parser.add_argument("--edge-white-min-diff", type=float, default=2.0)
-    parser.add_argument("--edge-white-max-diff", type=float, default=6.0)
-    parser.add_argument("--edge-white-min-bg", type=float, default=140.0)
-    parser.add_argument("--edge-white-min-center", type=float, default=145.0)
-    parser.add_argument("--edge-white-max-bright-ratio", type=float, default=0.05)
-    parser.add_argument("--edge-white-min-p10", type=float, default=130.0)
-    parser.add_argument("--edge-white-min-median", type=float, default=150.0)
-    parser.add_argument("--edge-white-max-std", type=float, default=12.0)
+    add_detection_arguments(parser)
     return parser
 
 

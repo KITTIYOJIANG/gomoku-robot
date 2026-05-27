@@ -5,6 +5,7 @@ import argparse
 import cv2
 
 from .board_detector import detect_board_corners, draw_board_detection, load_image
+from .detection_cli import add_detection_arguments, detection_kwargs
 from .grid_mapper import generate_grid_points, parse_corners
 from .stone_detector import detect_stones, draw_stone_detection, format_board_matrix
 
@@ -16,10 +17,7 @@ def main() -> None:
     parser.add_argument("--board-size", type=int, default=15)
     parser.add_argument("--show", action="store_true")
     parser.add_argument("--output", help="Optional visualization output path.")
-    parser.add_argument("--black-diff", type=float, default=35.0)
-    parser.add_argument("--white-diff", type=float, default=35.0)
-    parser.add_argument("--black-area-ratio", type=float, default=0.35)
-    parser.add_argument("--white-area-ratio", type=float, default=0.35)
+    add_detection_arguments(parser)
     args = parser.parse_args()
 
     image = load_image(args.image)
@@ -35,10 +33,7 @@ def main() -> None:
     board_matrix = detect_stones(
         image,
         grid_points,
-        black_diff=args.black_diff,
-        white_diff=args.white_diff,
-        black_area_ratio=args.black_area_ratio,
-        white_area_ratio=args.white_area_ratio,
+        **detection_kwargs(args),
     )
 
     print(format_board_matrix(board_matrix))
