@@ -39,12 +39,12 @@ class DetectionConfig:
     min_circularity: float = 0.45
     min_aspect_ratio: float = 0.55
     max_aspect_ratio: float = 1.80
-    min_radius: int = 11
-    max_radius: int = 34
+    min_radius: int = 13
+    max_radius: int = 32
     hough_dp: float = 1.2
-    hough_min_dist: int = 28
+    hough_min_dist: int = 32
     hough_param1: int = 90
-    hough_param2: int = 16
+    hough_param2: int = 30
     blur_size: int = 5
     morph_size: int = 5
     roi: Optional[Tuple[int, int, int, int]] = None
@@ -393,7 +393,11 @@ def get_center(contour: np.ndarray) -> Point:
 
 
 def draw_detection(
-    frame: np.ndarray, piece_type: PieceType, contour: np.ndarray, center: Point
+    frame: np.ndarray,
+    piece_type: PieceType,
+    contour: np.ndarray,
+    center: Point,
+    show_label: bool = True,
 ) -> None:
     """Draw bounding box, center dot, and piece label on the frame."""
 
@@ -409,6 +413,9 @@ def draw_detection(
 
     cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
     cv2.circle(frame, center, 4, (0, 0, 255), -1)
+    if not show_label:
+        return
+
     cv2.putText(
         frame,
         label,
@@ -462,6 +469,144 @@ def _print_detections(
     print(f"Frame {frame_index}: {len(detections)} piece(s)")
     for piece_type, _contour, (x, y) in detections:
         print(f"{piece_type} piece center: x={x}, y={y}")
+
+
+def _noop(_value: int) -> None:
+    pass
+
+
+class TuningPanel:
+    """OpenCV trackbar panel for field tuning without editing code."""
+
+    WINDOW_NAME = "Piece Detection Tuning"
+    METHODS = ("hybrid", "circle", "contour")
+
+    def __init__(
+        self,
+        base_config: DetectionConfig,
+        frame_shape: Tuple[int, int, int],
+        show_labels: bool,
+    ) -> None:
+        self.frame_h, self.frame_w = frame_shape[:2]
+        cv2.namedWindow(self.WINDOW_NAME, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(self.WINDOW_NAME, 520, 760)
+
+        roi = base_config.roi or (0, 0, self.frame_w, self.frame_h)
+        method_index = self.METHODS.index(base_config.method)
+        trackbars = {
+            "Method": (method_index, len(self.METHODS) - 1),
+            "ShowLabels": (1 if show_labels else 0, 1),
+            "UseROI": (1 if base_config.roi else 0, 1),
+            "ROI_X": (roi[0], self.frame_w - 1),
+            "ROI_Y": (roi[1], self.frame_h - 1),
+            "ROI_W": (roi[2], self.frame_w),
+            "ROI_H": (roi[3], self.frame_h),
+            "HoughParam2": (base_config.hough_param2, 80),
+            "HoughMinDist": (base_config.hough_min_dist, 120),
+            "MinRadius": (base_config.min_radius, 60),
+            "MaxRadius": (base_config.max_radius, 90),
+            "BlackVMax": (base_config.black_v_max, 255),
+            "BlackDiff": (int(round(base_config.black_diff)), 100),
+            "BlackP20Max": (int(round(base_config.black_p20_max)), 255),
+            "BlackDarkRatio": (int(round(base_config.black_dark_ratio_min * 100)), 100),
+            "BlackBlobVMax": (base_config.black_blob_v_max, 255),
+            "BlackBlobDist": (int(round(base_config.black_blob_min_distance)), 40),
+            "WhiteSMax": (base_config.white_s_max, 255),
+            "WhiteVMin": (base_config.white_v_min, 255),
+            "WhiteDiff": (int(round(base_config.white_diff)), 80),
+            "MinCircularity": (int(round(base_config.min_circularity * 100)), 100),
+            "BlurSize": (base_config.blur_size, 25),
+        }
+        for name, (initial, maximum) in trackbars.items():
+            cv2.createTrackbar(name, self.WINDOW_NAME, int(initial), int(maximum), _noop)
+
+    def _get(self, name: str) -> int:
+        return cv2.getTrackbarPos(name, self.WINDOW_NAME)
+
+    def get_config(self, base_config: DetectionConfig) -> DetectionConfig:
+        min_radius = max(1, self._get("MinRadius"))
+        max_radius = max(min_radius + 1, self._get("MaxRadius"))
+        roi = None
+        if self._get("UseROI"):
+            x = min(self._get("ROI_X"), self.frame_w - 1)
+            y = min(self._get("ROI_Y"), self.frame_h - 1)
+            w = max(1, min(self._get("ROI_W"), self.frame_w - x))
+            h = max(1, min(self._get("ROI_H"), self.frame_h - y))
+            roi = (x, y, w, h)
+
+        return DetectionConfig(
+            method=self.METHODS[self._get("Method")],
+            black_v_max=self._get("BlackVMax"),
+            black_diff=float(self._get("BlackDiff")),
+            black_p20_max=float(self._get("BlackP20Max")),
+            black_dark_ratio_min=self._get("BlackDarkRatio") / 100.0,
+            black_blob_v_max=self._get("BlackBlobVMax"),
+            black_blob_min_distance=float(self._get("BlackBlobDist")),
+            white_s_max=self._get("WhiteSMax"),
+            white_v_min=self._get("WhiteVMin"),
+            white_diff=float(self._get("WhiteDiff")),
+            min_area=base_config.min_area,
+            max_area=base_config.max_area,
+            min_circularity=self._get("MinCircularity") / 100.0,
+            min_aspect_ratio=base_config.min_aspect_ratio,
+            max_aspect_ratio=base_config.max_aspect_ratio,
+            min_radius=min_radius,
+            max_radius=max_radius,
+            hough_dp=base_config.hough_dp,
+            hough_min_dist=max(1, self._get("HoughMinDist")),
+            hough_param1=base_config.hough_param1,
+            hough_param2=max(1, self._get("HoughParam2")),
+            blur_size=_make_odd(max(1, self._get("BlurSize"))),
+            morph_size=base_config.morph_size,
+            roi=roi,
+        )
+
+    def show_labels(self) -> bool:
+        return bool(self._get("ShowLabels"))
+
+
+def _format_config_command(config: DetectionConfig, camera_id: int) -> str:
+    command = [
+        "python .\\piece_center_detect.py",
+        f"--camera-id {camera_id}",
+        f"--method {config.method}",
+        f"--black-v-max {config.black_v_max}",
+        f"--black-diff {config.black_diff:g}",
+        f"--black-p20-max {config.black_p20_max:g}",
+        f"--black-dark-ratio-min {config.black_dark_ratio_min:g}",
+        f"--black-blob-v-max {config.black_blob_v_max}",
+        f"--black-blob-min-distance {config.black_blob_min_distance:g}",
+        f"--white-s-max {config.white_s_max}",
+        f"--white-v-min {config.white_v_min}",
+        f"--white-diff {config.white_diff:g}",
+        f"--min-radius {config.min_radius}",
+        f"--max-radius {config.max_radius}",
+        f"--hough-min-dist {config.hough_min_dist}",
+        f"--hough-param2 {config.hough_param2}",
+        f"--min-circularity {config.min_circularity:g}",
+        f"--blur-size {config.blur_size}",
+    ]
+    if config.roi:
+        command.append(f"--roi {','.join(str(value) for value in config.roi)}")
+    return " ".join(command)
+
+
+def draw_status_overlay(
+    frame: np.ndarray,
+    config: DetectionConfig,
+    detections: List[Tuple[PieceType, np.ndarray, Point]],
+    tune_enabled: bool,
+) -> None:
+    black_count = sum(1 for piece_type, _contour, _center in detections if piece_type == "Black")
+    white_count = sum(1 for piece_type, _contour, _center in detections if piece_type == "White")
+    lines = [
+        f"Black={black_count} White={white_count} Method={config.method}",
+        "q: quit  p: print params" + ("  sliders: live tuning" if tune_enabled else ""),
+    ]
+    for idx, text in enumerate(lines):
+        y = 24 + idx * 24
+        cv2.putText(frame, text, (12, y), cv2.FONT_HERSHEY_SIMPLEX, 0.58, (0, 0, 0), 4, cv2.LINE_AA)
+        cv2.putText(frame, text, (12, y), cv2.FONT_HERSHEY_SIMPLEX, 0.58, (0, 255, 255), 1, cv2.LINE_AA)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -559,8 +704,18 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--print-every",
         type=int,
-        default=1,
+        default=10,
         help="Print detections every N frames. Use 1 for every frame.",
+    )
+    parser.add_argument(
+        "--tune",
+        action="store_true",
+        help="Open an OpenCV trackbar panel for live threshold tuning.",
+    )
+    parser.add_argument(
+        "--no-labels",
+        action="store_true",
+        help="Draw boxes and center dots without coordinate text labels.",
     )
     parser.add_argument(
         "--mirror",
@@ -584,7 +739,7 @@ def _parse_roi(roi_text: Optional[str]) -> Optional[Tuple[int, int, int, int]]:
 
 def main() -> int:
     args = _parse_args()
-    config = DetectionConfig(
+    base_config = DetectionConfig(
         method=args.method,
         black_v_max=args.black_v_max,
         black_diff=args.black_diff,
@@ -620,9 +775,15 @@ def main() -> int:
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, args.height)
 
     print("Piece center detection started. Press q to quit.")
-    print(f"Threshold config: {config}")
+    print(f"Threshold config: {base_config}")
+    if args.tune:
+        print("Tuning enabled: adjust sliders in the 'Piece Detection Tuning' window.")
+        print("Press p in the preview window to print the current reusable command.")
 
     frame_index = 0
+    config = base_config
+    tuning_panel: Optional[TuningPanel] = None
+    show_labels = not args.no_labels
     try:
         while True:
             ok, frame = cap.read()
@@ -633,20 +794,33 @@ def main() -> int:
             if args.mirror:
                 frame = cv2.flip(frame, 1)
 
+            if args.tune and tuning_panel is None:
+                tuning_panel = TuningPanel(base_config, frame.shape, show_labels)
+
+            if tuning_panel is not None:
+                config = tuning_panel.get_config(base_config)
+                show_labels = tuning_panel.show_labels()
+            else:
+                config = base_config
+
             frame_index += 1
             contours_by_type = get_piece_contours(frame, config)
             detections = list(_iter_detections(contours_by_type))
 
             for piece_type, contour, center in detections:
-                draw_detection(frame, piece_type, contour, center)
+                draw_detection(frame, piece_type, contour, center, show_label=show_labels)
 
             draw_roi(frame, config.roi)
+            draw_status_overlay(frame, config, detections, args.tune)
             _print_detections(detections, frame_index, args.print_every)
             cv2.imshow("Gomoku Piece Center Detection", frame)
 
             key = cv2.waitKey(1) & 0xFF
             if key == ord("q"):
                 break
+            if key == ord("p"):
+                print("Current reusable command:")
+                print(_format_config_command(config, args.camera_id))
     finally:
         cap.release()
         cv2.destroyAllWindows()

@@ -59,6 +59,22 @@
 python .\piece_center_detect.py --print-every 10
 ```
 
+推荐现场调参模式：
+
+```powershell
+python .\piece_center_detect.py --tune --no-labels --print-every 10
+```
+
+调参窗口中建议优先拖这些滑条：
+
+- 满屏误检：先提高 `HoughParam2`，再提高 `MinRadius` 或打开 `UseROI` 限定棋盘区域。
+- 棋盘线/星位误检成黑棋：提高 `BlackDiff`、降低 `BlackP20Max`、提高 `BlackDarkRatio`，或提高 `BlackBlobDist`。
+- 白棋漏检：降低 `WhiteDiff`，再降低 `WhiteVMin`。
+- 背景误检成白棋：提高 `WhiteDiff`，提高 `WhiteVMin`，降低 `WhiteSMax`。
+- 多个黑棋贴在一起漏检：降低 `BlackBlobDist`，适当提高 `BlackBlobVMax`。
+
+调好后，在预览窗口按 `p`，终端会打印当前可复用命令。
+
 显式指定 USB 摄像头：
 
 ```powershell
@@ -100,6 +116,14 @@ python .\piece_center_detect.py --camera-id 2 --black-blob-v-max 145 --black-blo
 ```powershell
 python .\piece_center_detect.py --camera-id 2 --roi 70,40,590,580 --print-every 10
 ```
+
+也可以用滑条方式打开 ROI：
+
+```powershell
+python .\piece_center_detect.py --camera-id 2 --tune --no-labels --print-every 10
+```
+
+然后在调参窗口中把 `UseROI` 设为 `1`，拖动 `ROI_X`、`ROI_Y`、`ROI_W`、`ROI_H`，只框住棋盘区域。
 
 ## 后续建议
 
