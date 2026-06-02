@@ -18,6 +18,16 @@ import numpy as np
 
 PieceType = str
 Point = Tuple[int, int]
+Detection = Tuple[PieceType, np.ndarray, Point]
+
+
+@dataclass
+class DetectionTrack:
+    piece_type: PieceType
+    contour: np.ndarray
+    center: np.ndarray
+    hits: int = 1
+    missed: int = 0
 
 
 @dataclass(frozen=True)
@@ -458,7 +468,7 @@ def _iter_detections(
 
 
 def _print_detections(
-    detections: Iterable[Tuple[PieceType, np.ndarray, Point]],
+    detections: Iterable[Detection],
     frame_index: int,
     print_every: int,
 ) -> None:
@@ -473,6 +483,83 @@ def _print_detections(
     print(f"Frame {frame_index}: {len(detections)} piece(s)")
     for piece_type, _contour, (x, y) in detections:
         print(f"{piece_type} piece center: x={x}, y={y}")
+
+
+def _shift_contour(contour: np.ndarray, dx: int, dy: int) -> np.ndarray:
+    if dx == 0 and dy == 0:
+        return contour
+    return contour + np.array([[[dx, dy]]], dtype=np.int32)
+
+
+class DetectionStabilizer:
+    """Keep detections stable across frames to reduce visible flicker."""
+
+    def __init__(self) -> None:
+        self.tracks: List[DetectionTrack] = []
+
+    def reset(self) -> None:
+        self.tracks.clear()
+
+    def update(self, detections: List[Detection], stability_level: int) -> List[Detection]:
+        stability_level = int(np.clip(stability_level, 0, 10))
+        if stability_level <= 0:
+            self.reset()
+            return detections
+
+        min_hits = 2 if stability_level < 8 else 3
+        hold_frames = max(1, stability_level + 1)
+        match_distance = 24.0 + stability_level * 4.0
+        alpha = max(0.30, 0.66 - stability_level * 0.035)
+
+        existing_track_count = len(self.tracks)
+        matched_tracks: set[int] = set()
+        for piece_type, contour, center in detections:
+            raw_center = np.array(center, dtype=float)
+            best_track_index: Optional[int] = None
+            best_distance = match_distance
+
+            for idx, track in enumerate(self.tracks[:existing_track_count]):
+                if idx in matched_tracks or track.piece_type != piece_type:
+                    continue
+                distance = float(np.linalg.norm(raw_center - track.center))
+                if distance <= best_distance:
+                    best_distance = distance
+                    best_track_index = idx
+
+            if best_track_index is None:
+                self.tracks.append(
+                    DetectionTrack(
+                        piece_type=piece_type,
+                        contour=contour,
+                        center=raw_center,
+                    )
+                )
+                continue
+
+            track = self.tracks[best_track_index]
+            matched_tracks.add(best_track_index)
+            smoothed_center = track.center * (1.0 - alpha) + raw_center * alpha
+            sx, sy = int(round(smoothed_center[0])), int(round(smoothed_center[1]))
+            dx, dy = sx - center[0], sy - center[1]
+
+            track.center = smoothed_center
+            track.contour = _shift_contour(contour, dx, dy)
+            track.hits += 1
+            track.missed = 0
+
+        for idx in range(existing_track_count):
+            if idx not in matched_tracks:
+                self.tracks[idx].missed += 1
+
+        self.tracks = [track for track in self.tracks if track.missed <= hold_frames]
+
+        stable: List[Detection] = []
+        for track in self.tracks:
+            if track.hits < min_hits:
+                continue
+            cx, cy = int(round(track.center[0])), int(round(track.center[1]))
+            stable.append((track.piece_type, track.contour, (cx, cy)))
+        return stable
 
 
 def _noop(_value: int) -> None:
@@ -503,6 +590,7 @@ class TuningPanel:
         trackbars = {
             "Method": (method_index, len(self.METHODS) - 1),
             "Strictness": (initial_strictness, 100),
+            "Stability": (5, 10),
             "RescueBlack": (1 if base_config.black_rescue_enabled else 0, 1),
             "Labels": (1 if show_labels else 0, 1),
             "WhiteGain": (int(round(base_config.white_diff)), 50),
@@ -572,11 +660,15 @@ class TuningPanel:
     def show_labels(self) -> bool:
         return bool(self._get("Labels"))
 
+    def stability_level(self) -> int:
+        return self._get("Stability")
 
-def _format_config_command(config: DetectionConfig, camera_id: int) -> str:
+
+def _format_config_command(config: DetectionConfig, camera_id: int, stability_level: int) -> str:
     command = [
         "python .\\piece_center_detect.py",
         f"--camera-id {camera_id}",
+        f"--stability {stability_level}",
         f"--method {config.method}",
         f"--black-v-max {config.black_v_max}",
         f"--black-diff {config.black_diff:g}",
@@ -604,14 +696,23 @@ def _format_config_command(config: DetectionConfig, camera_id: int) -> str:
 def draw_status_overlay(
     frame: np.ndarray,
     config: DetectionConfig,
-    detections: List[Tuple[PieceType, np.ndarray, Point]],
+    detections: List[Detection],
     tune_enabled: bool,
+    raw_detections: Optional[List[Detection]] = None,
+    stability_level: int = 0,
 ) -> None:
     black_count = sum(1 for piece_type, _contour, _center in detections if piece_type == "Black")
     white_count = sum(1 for piece_type, _contour, _center in detections if piece_type == "White")
+    raw_detections = raw_detections if raw_detections is not None else detections
+    raw_black = sum(1 for piece_type, _contour, _center in raw_detections if piece_type == "Black")
+    raw_white = sum(1 for piece_type, _contour, _center in raw_detections if piece_type == "White")
     lines = [
         (
-            f"Black={black_count} White={white_count} Method={config.method} "
+            f"Shown B={black_count} W={white_count} Raw B={raw_black} W={raw_white} "
+            f"S={stability_level}"
+        ),
+        (
+            f"Method={config.method} "
             f"H2={config.hough_param2} R={config.min_radius}-{config.max_radius} "
             f"Rescue={int(config.black_rescue_enabled)}"
         ),
@@ -727,6 +828,12 @@ def _parse_args() -> argparse.Namespace:
         help="Print detections every N frames. Use 1 for every frame.",
     )
     parser.add_argument(
+        "--stability",
+        type=int,
+        default=5,
+        help="Temporal smoothing level from 0 to 10. Use 0 for raw per-frame detections.",
+    )
+    parser.add_argument(
         "--tune",
         action="store_true",
         help="Open an OpenCV trackbar panel for live threshold tuning.",
@@ -803,7 +910,9 @@ def main() -> int:
     frame_index = 0
     config = base_config
     tuning_panel: Optional[TuningPanel] = None
+    stabilizer = DetectionStabilizer()
     show_labels = not args.no_labels
+    stability_level = int(np.clip(args.stability, 0, 10))
     try:
         while True:
             ok, frame = cap.read()
@@ -820,18 +929,28 @@ def main() -> int:
             if tuning_panel is not None:
                 config = tuning_panel.get_config(base_config)
                 show_labels = tuning_panel.show_labels()
+                stability_level = tuning_panel.stability_level()
             else:
                 config = base_config
+                stability_level = int(np.clip(args.stability, 0, 10))
 
             frame_index += 1
             contours_by_type = get_piece_contours(frame, config)
-            detections = list(_iter_detections(contours_by_type))
+            raw_detections = list(_iter_detections(contours_by_type))
+            detections = stabilizer.update(raw_detections, stability_level)
 
             for piece_type, contour, center in detections:
                 draw_detection(frame, piece_type, contour, center, show_label=show_labels)
 
             draw_roi(frame, config.roi)
-            draw_status_overlay(frame, config, detections, args.tune)
+            draw_status_overlay(
+                frame,
+                config,
+                detections,
+                args.tune,
+                raw_detections=raw_detections,
+                stability_level=stability_level,
+            )
             _print_detections(detections, frame_index, args.print_every)
             cv2.imshow("Gomoku Piece Center Detection", frame)
 
@@ -840,7 +959,7 @@ def main() -> int:
                 break
             if key == ord("p"):
                 print("Current reusable command:")
-                print(_format_config_command(config, args.camera_id))
+                print(_format_config_command(config, args.camera_id, stability_level))
     finally:
         cap.release()
         cv2.destroyAllWindows()

@@ -65,9 +65,17 @@ python .\piece_center_detect.py --print-every 10
 python .\piece_center_detect.py --tune --no-labels --print-every 10
 ```
 
+如果只想减少闪烁、不想打开调参窗口：
+
+```powershell
+python .\piece_center_detect.py --stability 7 --print-every 10
+```
+
 调参窗口中建议优先拖这些滑条：
 
 - 满屏误检：先提高 `Strictness`。
+- 白棋闪烁：提高 `Stability`，例如从 `5` 调到 `7` 或 `8`。
+- 调参时想看原始逐帧结果：把 `Stability` 调到 `0`。
 - 提高 `Strictness` 后还是满屏误检：把 `RescueBlack` 改成 `0`，确认是不是黑棋补救检测在刷屏。
 - 棋盘线/星位误检成黑棋：提高 `Strictness`，或提高 `BlobDist`。
 - 白棋漏检：降低 `WhiteGain`，再降低 `WhiteMin`。
@@ -80,10 +88,18 @@ python .\piece_center_detect.py --tune --no-labels --print-every 10
 预览窗口左上角会显示当前关键参数，例如：
 
 ```text
-Black=4 White=2 Method=hybrid H2=30 R=13-32 Rescue=1
+Shown B=4 W=2 Raw B=4 W=3 S=7
+Method=hybrid H2=30 R=13-32 Rescue=1
 ```
 
-如果拖动滑条但画面看起来没变化，优先观察左上角的 `H2`、`R`、`Rescue` 是否变化；如果这些数值变化了，说明滑条已经生效，只是另一个检测分支还在产生候选。
+其中：
+
+- `Raw` 是当前帧原始检测结果；
+- `Shown` 是经过跨帧稳定后真正显示和打印的结果；
+- `S` 是稳定等级，也就是 `Stability`。
+
+如果白棋在 `Raw` 里偶尔丢失，但 `Shown` 仍保持，说明稳定器正在正常工作。  
+如果拖动滑条但画面看起来没变化，优先观察左上角的 `H2`、`R`、`Rescue` 是否变化；如果这些数值变化了，说明滑条已经生效，只是另一个检测分支或稳定器还在保留候选。
 
 显式指定 USB 摄像头：
 
