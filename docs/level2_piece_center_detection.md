@@ -67,13 +67,23 @@ python .\piece_center_detect.py --tune --no-labels --print-every 10
 
 调参窗口中建议优先拖这些滑条：
 
-- 满屏误检：先提高 `HoughParam2`，再提高 `MinRadius` 或打开 `UseROI` 限定棋盘区域。
-- 棋盘线/星位误检成黑棋：提高 `BlackDiff`、降低 `BlackP20Max`、提高 `BlackDarkRatio`，或提高 `BlackBlobDist`。
-- 白棋漏检：降低 `WhiteDiff`，再降低 `WhiteVMin`。
-- 背景误检成白棋：提高 `WhiteDiff`，提高 `WhiteVMin`，降低 `WhiteSMax`。
-- 多个黑棋贴在一起漏检：降低 `BlackBlobDist`，适当提高 `BlackBlobVMax`。
+- 满屏误检：先提高 `Strictness`。
+- 提高 `Strictness` 后还是满屏误检：把 `RescueBlack` 改成 `0`，确认是不是黑棋补救检测在刷屏。
+- 棋盘线/星位误检成黑棋：提高 `Strictness`，或提高 `BlobDist`。
+- 白棋漏检：降低 `WhiteGain`，再降低 `WhiteMin`。
+- 背景误检成白棋：提高 `WhiteGain`，提高 `WhiteMin`。
+- 多个黑棋贴在一起漏检：打开 `RescueBlack`，降低 `BlobDist`，适当提高 `BlobDark`。
+- 右侧棋盒干扰：打开 `UseROI`，用 `ROI_X`、`ROI_Y`、`ROI_W`、`ROI_H` 只框住棋盘区域。
 
 调好后，在预览窗口按 `p`，终端会打印当前可复用命令。
+
+预览窗口左上角会显示当前关键参数，例如：
+
+```text
+Black=4 White=2 Method=hybrid H2=30 R=13-32 Rescue=1
+```
+
+如果拖动滑条但画面看起来没变化，优先观察左上角的 `H2`、`R`、`Rescue` 是否变化；如果这些数值变化了，说明滑条已经生效，只是另一个检测分支还在产生候选。
 
 显式指定 USB 摄像头：
 

@@ -29,6 +29,7 @@ class DetectionConfig:
     black_diff: float = 22.0
     black_p20_max: float = 105.0
     black_dark_ratio_min: float = 0.24
+    black_rescue_enabled: bool = True
     black_blob_v_max: int = 125
     black_blob_min_distance: float = 8.0
     white_s_max: int = 115
@@ -318,8 +319,11 @@ def _detect_hybrid_contours(
     frame: np.ndarray, config: DetectionConfig
 ) -> Dict[PieceType, List[np.ndarray]]:
     result = _detect_circle_contours(frame, config)
-    black_rescue = _detect_black_blob_contours(frame, config, result["Black"] + result["White"])
-    result["Black"].extend(black_rescue)
+    if config.black_rescue_enabled:
+        black_rescue = _detect_black_blob_contours(
+            frame, config, result["Black"] + result["White"]
+        )
+        result["Black"].extend(black_rescue)
     return result
 
 
@@ -476,7 +480,7 @@ def _noop(_value: int) -> None:
 
 
 class TuningPanel:
-    """OpenCV trackbar panel for field tuning without editing code."""
+    """Compact OpenCV trackbar panel for field tuning without editing code."""
 
     WINDOW_NAME = "Piece Detection Tuning"
     METHODS = ("hybrid", "circle", "contour")
@@ -489,33 +493,28 @@ class TuningPanel:
     ) -> None:
         self.frame_h, self.frame_w = frame_shape[:2]
         cv2.namedWindow(self.WINDOW_NAME, cv2.WINDOW_NORMAL)
-        cv2.resizeWindow(self.WINDOW_NAME, 520, 760)
+        cv2.resizeWindow(self.WINDOW_NAME, 440, 520)
 
         roi = base_config.roi or (0, 0, self.frame_w, self.frame_h)
         method_index = self.METHODS.index(base_config.method)
+        initial_strictness = int(
+            np.clip((base_config.hough_param2 - 12) * 2, 0, 100)
+        )
         trackbars = {
             "Method": (method_index, len(self.METHODS) - 1),
-            "ShowLabels": (1 if show_labels else 0, 1),
+            "Strictness": (initial_strictness, 100),
+            "RescueBlack": (1 if base_config.black_rescue_enabled else 0, 1),
+            "Labels": (1 if show_labels else 0, 1),
+            "WhiteGain": (int(round(base_config.white_diff)), 50),
+            "WhiteMin": (base_config.white_v_min, 255),
+            "BlackMax": (base_config.black_v_max, 255),
+            "BlobDark": (base_config.black_blob_v_max, 255),
+            "BlobDist": (int(round(base_config.black_blob_min_distance)), 40),
             "UseROI": (1 if base_config.roi else 0, 1),
             "ROI_X": (roi[0], self.frame_w - 1),
             "ROI_Y": (roi[1], self.frame_h - 1),
             "ROI_W": (roi[2], self.frame_w),
             "ROI_H": (roi[3], self.frame_h),
-            "HoughParam2": (base_config.hough_param2, 80),
-            "HoughMinDist": (base_config.hough_min_dist, 120),
-            "MinRadius": (base_config.min_radius, 60),
-            "MaxRadius": (base_config.max_radius, 90),
-            "BlackVMax": (base_config.black_v_max, 255),
-            "BlackDiff": (int(round(base_config.black_diff)), 100),
-            "BlackP20Max": (int(round(base_config.black_p20_max)), 255),
-            "BlackDarkRatio": (int(round(base_config.black_dark_ratio_min * 100)), 100),
-            "BlackBlobVMax": (base_config.black_blob_v_max, 255),
-            "BlackBlobDist": (int(round(base_config.black_blob_min_distance)), 40),
-            "WhiteSMax": (base_config.white_s_max, 255),
-            "WhiteVMin": (base_config.white_v_min, 255),
-            "WhiteDiff": (int(round(base_config.white_diff)), 80),
-            "MinCircularity": (int(round(base_config.min_circularity * 100)), 100),
-            "BlurSize": (base_config.blur_size, 25),
         }
         for name, (initial, maximum) in trackbars.items():
             cv2.createTrackbar(name, self.WINDOW_NAME, int(initial), int(maximum), _noop)
@@ -524,8 +523,16 @@ class TuningPanel:
         return cv2.getTrackbarPos(name, self.WINDOW_NAME)
 
     def get_config(self, base_config: DetectionConfig) -> DetectionConfig:
-        min_radius = max(1, self._get("MinRadius"))
-        max_radius = max(min_radius + 1, self._get("MaxRadius"))
+        strictness = self._get("Strictness")
+        min_radius = int(np.clip(9 + strictness // 8, 8, 24))
+        max_radius = int(np.clip(38 - strictness // 12, min_radius + 2, 48))
+        hough_param2 = int(np.clip(12 + strictness // 2, 8, 70))
+        hough_min_dist = int(np.clip(22 + strictness // 3, 18, 70))
+        min_circularity = float(np.clip(0.36 + strictness * 0.004, 0.30, 0.78))
+        black_blob_min_distance = max(
+            1.0,
+            float(self._get("BlobDist")) + strictness / 18.0,
+        )
         roi = None
         if self._get("UseROI"):
             x = min(self._get("ROI_X"), self.frame_w - 1)
@@ -536,33 +543,34 @@ class TuningPanel:
 
         return DetectionConfig(
             method=self.METHODS[self._get("Method")],
-            black_v_max=self._get("BlackVMax"),
-            black_diff=float(self._get("BlackDiff")),
-            black_p20_max=float(self._get("BlackP20Max")),
-            black_dark_ratio_min=self._get("BlackDarkRatio") / 100.0,
-            black_blob_v_max=self._get("BlackBlobVMax"),
-            black_blob_min_distance=float(self._get("BlackBlobDist")),
-            white_s_max=self._get("WhiteSMax"),
-            white_v_min=self._get("WhiteVMin"),
-            white_diff=float(self._get("WhiteDiff")),
+            black_v_max=self._get("BlackMax"),
+            black_diff=max(8.0, base_config.black_diff + strictness / 6.0),
+            black_p20_max=max(40.0, base_config.black_p20_max - strictness / 2.0),
+            black_dark_ratio_min=min(0.85, base_config.black_dark_ratio_min + strictness / 250.0),
+            black_rescue_enabled=bool(self._get("RescueBlack")),
+            black_blob_v_max=self._get("BlobDark"),
+            black_blob_min_distance=black_blob_min_distance,
+            white_s_max=base_config.white_s_max,
+            white_v_min=self._get("WhiteMin"),
+            white_diff=float(self._get("WhiteGain")),
             min_area=base_config.min_area,
             max_area=base_config.max_area,
-            min_circularity=self._get("MinCircularity") / 100.0,
+            min_circularity=min_circularity,
             min_aspect_ratio=base_config.min_aspect_ratio,
             max_aspect_ratio=base_config.max_aspect_ratio,
             min_radius=min_radius,
             max_radius=max_radius,
             hough_dp=base_config.hough_dp,
-            hough_min_dist=max(1, self._get("HoughMinDist")),
+            hough_min_dist=hough_min_dist,
             hough_param1=base_config.hough_param1,
-            hough_param2=max(1, self._get("HoughParam2")),
-            blur_size=_make_odd(max(1, self._get("BlurSize"))),
+            hough_param2=hough_param2,
+            blur_size=base_config.blur_size,
             morph_size=base_config.morph_size,
             roi=roi,
         )
 
     def show_labels(self) -> bool:
-        return bool(self._get("ShowLabels"))
+        return bool(self._get("Labels"))
 
 
 def _format_config_command(config: DetectionConfig, camera_id: int) -> str:
@@ -586,6 +594,8 @@ def _format_config_command(config: DetectionConfig, camera_id: int) -> str:
         f"--min-circularity {config.min_circularity:g}",
         f"--blur-size {config.blur_size}",
     ]
+    if not config.black_rescue_enabled:
+        command.append("--disable-black-rescue")
     if config.roi:
         command.append(f"--roi {','.join(str(value) for value in config.roi)}")
     return " ".join(command)
@@ -600,7 +610,11 @@ def draw_status_overlay(
     black_count = sum(1 for piece_type, _contour, _center in detections if piece_type == "Black")
     white_count = sum(1 for piece_type, _contour, _center in detections if piece_type == "White")
     lines = [
-        f"Black={black_count} White={white_count} Method={config.method}",
+        (
+            f"Black={black_count} White={white_count} Method={config.method} "
+            f"H2={config.hough_param2} R={config.min_radius}-{config.max_radius} "
+            f"Rescue={int(config.black_rescue_enabled)}"
+        ),
         "q: quit  p: print params" + ("  sliders: live tuning" if tune_enabled else ""),
     ]
     for idx, text in enumerate(lines):
@@ -650,6 +664,11 @@ def _parse_args() -> argparse.Namespace:
         type=float,
         default=DetectionConfig.black_dark_ratio_min,
         help="Minimum dark-pixel ratio for black stones.",
+    )
+    parser.add_argument(
+        "--disable-black-rescue",
+        action="store_true",
+        help="Disable dark-blob rescue detection for clustered black stones.",
     )
     parser.add_argument(
         "--black-blob-v-max",
@@ -745,6 +764,7 @@ def main() -> int:
         black_diff=args.black_diff,
         black_p20_max=args.black_p20_max,
         black_dark_ratio_min=args.black_dark_ratio_min,
+        black_rescue_enabled=not args.disable_black_rescue,
         black_blob_v_max=args.black_blob_v_max,
         black_blob_min_distance=args.black_blob_min_distance,
         white_s_max=args.white_s_max,
