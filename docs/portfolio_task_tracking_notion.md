@@ -22,9 +22,62 @@
 - `Priority`：P0 / P1 / P2
 - `Module`：Perception / Board Mapping / AI / GUI / Host-Arm Adapter / Arm Controller / Evidence
 - `Repo`：Upper / Arm / Both
+- `Type`：Parent / Subtask
+- `Parent Task`：所属父任务
+- `Progress`：模块完成度
 - `Due`：截止日期
 - `Evidence`：截图、命令输出、GitHub 文件、视频
 - `Next Action`：下一步动作
+
+如果要直接导入 Notion 数据库，也可以使用：
+
+```text
+D:\Projects\gomoku_project\docs\portfolio_task_database.csv
+```
+
+### 1.1 父任务表
+
+父任务对应你截图里的“当前完成度”每一行，用来表示一个模块整体状态。
+
+| Task ID | 父任务 | Status | Priority | Module | Progress | Repo | 下一步 |
+|---|---|---|---|---|---:|---|---|
+| MOD-01 | 五子棋规则核心 | In progress | P2 | Core Rules | 90% | Upper | 补边界测试和作品集证据 |
+| MOD-02 | AI 决策 | In progress | P1 | AI | 80% | Upper | 记录 AI 输入局面和输出下一步的演示 |
+| MOD-03 | PyQt 上位机 GUI | In progress | P1 | GUI | 75% | Upper | 接入视觉识别矩阵展示 |
+| MOD-04 | 静态视觉 benchmark | Done | P2 | Perception | 100% | Upper | 作为不可回退基线保留 |
+| MOD-05 | 第 2 关棋子中心检测 | In progress | P0 | Perception | 75% | Upper | 固定 USB 摄像头实时检测参数并录证据 |
+| MOD-06 | 第 3 关像素转行列 | Not started | P1 | Board Mapping | 45% | Upper | 做独立 demo，把像素中心转成 `(row, col)` |
+| MOD-07 | AI 到机械臂 mock | In progress | P1 | Host-Arm Adapter | 70% | Both | 补 mock 命令链路截图 |
+| MOD-08 | 下位机 CLI | In progress | P1 | Arm Controller | 65% | Arm | 整理 README、CLI 示例和测试证据 |
+| MOD-09 | 姿态表与标定 | In progress | P2 | Calibration | 55% | Arm | 做真实四角/中心点标定 |
+| MOD-10 | 真实机械臂闭环 | Not started | P2 | Full Loop | 25% | Both | 先完成单步真实硬件验证 |
+
+### 1.2 子任务表
+
+子任务对应每个未完成模块下面要继续推进的小任务。导入 Notion 后，建议用 `Parent Task` 字段关联到父任务。
+
+| Task ID | 子任务 | Parent Task | Status | Priority | 验收标准 | 下一步 |
+|---|---|---|---|---|---|---|
+| SUB-01 | 补规则核心边界测试证据 | MOD-01 | Not started | P2 | 有测试输出或截图证明胜负判断可靠 | 运行规则测试并截图 |
+| SUB-02 | 记录 AI 决策演示 | MOD-02 | Not started | P1 | 给定棋盘状态后能看到 AI 输出下一步 | 准备 2 到 3 个典型局面 |
+| SUB-03 | GUI 显示视觉矩阵 | MOD-03 | Not started | P1 | GUI 能显示识别出的 15x15 board matrix | 找到 GUI 棋盘状态入口 |
+| SUB-04 | 保留静态 benchmark 回归 | MOD-04 | Done | P2 | detector 调参后旧 benchmark 不退化 | 每次改视觉后运行 benchmark |
+| SUB-05 | 固定第 2 关现场参数 | MOD-05 | In progress | P0 | 黑白棋框、中心点、坐标稳定显示 | 用 `--tune` 调参并按 `p` 打印 |
+| SUB-06 | 录制第 2 关演示证据 | MOD-05 | Not started | P0 | 有窗口截图、终端输出截图、演示视频 | 录 10 到 30 秒 USB 摄像头检测 |
+| SUB-07 | 改善白棋闪烁 | MOD-05 | In progress | P0 | 白棋不再频繁消失/出现 | 调 `--stability`、WhiteGain、WhiteMin |
+| SUB-08 | 改善黑棋堆叠漏检 | MOD-05 | In progress | P0 | 聚集黑棋能尽量分离成多颗 | 调 Hough 半径、BlobDist、RescueBlack |
+| SUB-09 | 实现像素到棋盘坐标 demo | MOD-06 | Not started | P1 | 输出 `(x, y) -> (row, col)` | 新建或扩展 `piece_center_to_board.py` |
+| SUB-10 | 在画面上显示棋盘行列 | MOD-06 | Not started | P1 | 标签显示 `Black (row, col)` / `White (row, col)` | 接入透视变换或四角插值 |
+| SUB-11 | 输出完整棋盘矩阵 | MOD-06 | Not started | P1 | 终端能打印 15x15 矩阵 | 根据所有棋子中心填充矩阵 |
+| SUB-12 | 补 AI 到机械臂 mock 证据 | MOD-07 | Not started | P1 | 日志能看到 AI 输出和 `place row col` | 运行 mock demo 并截图 |
+| SUB-13 | 明确真实硬件安全边界 | MOD-07 | Not started | P1 | 文档说明 mock 不等于真实动作 | 更新作品集说明 |
+| SUB-14 | 整理下位机 README | MOD-08 | Not started | P1 | README 说明 CLI、协议、pose table | 修改 arm repo README |
+| SUB-15 | 补下位机 CLI 测试截图 | MOD-08 | Not started | P1 | 有 `place/home/stop/status` 输出证据 | 在 arm repo 运行 CLI 示例 |
+| SUB-16 | 标定棋盘四角姿态 | MOD-09 | Not started | P2 | 有四角真实姿态数据 | 手工移动机械臂记录 PWM/姿态 |
+| SUB-17 | 建立真实 pose table | MOD-09 | Not started | P2 | 有可追踪的 `poses.real.json` 或等价文件 | 写入并验证单点姿态 |
+| SUB-18 | 真实硬件单步验证 | MOD-10 | Not started | P2 | `status/home/stop/place` 单步可运行 | 从 `status` 和 `home` 开始 |
+| SUB-19 | 加闭环安全确认 | MOD-10 | Not started | P2 | 执行动作前需要人工确认或置信度门槛 | 先在 mock 层实现安全开关 |
+| SUB-20 | 动作后视觉复核 | MOD-10 | Not started | P2 | 机械臂落子后摄像头能复核棋盘变化 | 等真实单步动作稳定后再接入 |
 
 ---
 
@@ -592,4 +645,3 @@ Due：
 - 不要说：真实机械臂闭环已经稳定完成
 - 不要说：所有光照和摄像头角度下识别都 100%
 - 不要把 mock 执行说成真实硬件执行
-

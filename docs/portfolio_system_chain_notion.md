@@ -447,3 +447,4 @@ piece_center_detect.py --show-board-coords
 - 将“2026-06-06 前优先级”转成 To-do list
 - 将“作品集表述”单独放到页面底部，后续可直接复制到简历或答辩稿
 - 将未完成模块拆到任务 tracking 页：`docs/portfolio_task_tracking_notion.md`
+- 如果想直接做成 Notion Task Database，可以导入：`docs/portfolio_task_database.csv`
