@@ -7,7 +7,8 @@
 
 ```text
 上位机 GitHub 主仓 / 本地路径：D:\Projects\gomoku_project
-下位机本地项目路径：D:\Projects\gomoku_arm_controller（暂未建立 GitHub 远程仓库）
+下位机 GitHub 仓库：https://github.com/KITTIYOJIANG/gomoku-arm-controller
+下位机本地路径：D:\Projects\gomoku_arm_controller
 ```
 
 ## 验收标准
@@ -62,7 +63,7 @@ flowchart TB
         DEMO["demo_ai_to_arm_mock.py<br/>AI -> arm mock demo"]
     end
 
-    subgraph Arm["下位机本地项目 gomoku_arm_controller"]
+    subgraph Arm["下位机仓库 gomoku-arm-controller"]
         CLI["arm_controller/cli.py<br/>place/home/stop/status"]
         MAP["coordinate_mapper.py / pose_table.py<br/>棋盘坐标到机械臂姿态"]
         STM["stm32_controller.py<br/>动作序列、PWM、ACK"]
@@ -138,12 +139,12 @@ flowchart TB
 - 未跟踪项仍存在：`agent_memory/`、`agent_memory.zip`、`PWM机械臂五子棋项目学习.pdf`。
 - 这些未跟踪项目前不属于代码主线，不应随意纳入提交。
 
-下位机本地项目 `D:\Projects\gomoku_arm_controller`：
+下位机仓库 `gomoku-arm-controller`：
 
 - 当前存在多处未提交改动和新增文件。
 - 已观察到新增或修改内容包括 `pose_table.py`、`calibration/`、CLI、协议、测试等。
-- 该项目目前没有 GitHub 远程仓库，暂时只作为本地开发证据引用。
-- 由于这是本地独立项目的进行中改动，本页只作为状态引用，不直接修改该项目。
+- GitHub 远程仓库为 `https://github.com/KITTIYOJIANG/gomoku-arm-controller`。
+- 由于这是独立下位机仓库的进行中改动，本页只作为状态引用，不直接修改该项目。
 
 ## 6. 当前卡点
 
@@ -195,7 +196,7 @@ python -m arm_controller.cli place --row 7 --col 7 --mock
 一句话描述：
 
 ```text
-构建从真实棋盘视觉识别、五子棋 AI 决策到机械臂落子执行的感知-决策-行动链路，并将上位机视觉/AI 与下位机机械臂控制拆分为两个可独立测试的工程项目。
+构建从真实棋盘视觉识别、五子棋 AI 决策到机械臂落子执行的感知-决策-行动链路，并将上位机视觉/AI 与下位机机械臂控制拆分为两个可独立测试的工程仓库。
 ```
 
 当前可诚实展示的成果：
@@ -204,7 +205,7 @@ python -m arm_controller.cli place --row 7 --col 7 --mock
 - 静态 benchmark 黑白棋识别 100% recall，0 误报；
 - PyQt 上位机支持棋盘显示、AI 决策和模式切换；
 - AI 到机械臂 mock 接口已打通；
-- 本地机械臂控制项目已具备 CLI、pose table、PWM command、ACK/STOP/status 设计。
+- 机械臂控制仓库已具备 CLI、pose table、PWM command、ACK/STOP/status 设计。
 
 需要避免夸大的内容：
 
